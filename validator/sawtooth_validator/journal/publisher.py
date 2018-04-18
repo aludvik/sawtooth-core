@@ -81,8 +81,6 @@ class _PublisherThread(InstrumentedThread):
         try:
             # make sure we don't check to publish the block
             # to frequently.
-            next_check_publish_block_time = time.time() + \
-                self._check_publish_block_frequency
             while True:
                 try:
                     batch = self._batch_queue.get(
@@ -92,12 +90,16 @@ class _PublisherThread(InstrumentedThread):
                     # If getting a batch times out, just try again.
                     pass
 
-                if next_check_publish_block_time < time.time():
-                    self._block_publisher.on_check_publish_block()
-                    next_check_publish_block_time = time.time() + \
-                        self._check_publish_block_frequency
                 if self._exit:
                     return
+
+                desired = self._block_publisher._desired_state.get()
+                current = self._block_publisher._current_state.get()
+                LOGGER.warning("desired = %s, current = %s", desired, current)
+                if current != desired:
+                    if (desired == _PublisherState.BUILDING and current == _PublisherState.IDLE):
+                        LOGGER.warning("BUILDING A BLOCK")
+                        self._block_publisher._build_block()
         # pylint: disable=broad-except
         except Exception as exc:
             LOGGER.exception(exc)
@@ -105,6 +107,34 @@ class _PublisherThread(InstrumentedThread):
 
     def stop(self):
         self._exit = True
+
+
+class _PublisherState:
+    IDLE = 0
+    BUILDING = 1
+
+    GRAPH = (
+        (BUILDING, IDLE), # from IDLE
+        ((IDLE,)), # from BUILDING
+    )
+
+    def __init__(self):
+        self._state = self.IDLE
+
+    def set(self, new_state):
+        if new_state not in self.GRAPH[self._state]:
+            raise ValueError(
+                "Invalid transition: {} to {}".format(self._state, new_state))
+        self._state = new_state
+
+    def get(self):
+        return self._state
+
+    def __str__(self):
+        if self._state == self.IDLE:
+            return "_PublisherState.IDLE"
+        if self._state == self.BUILDING:
+            return "_PublisherState.BUILDING"
 
 
 class _CandidateBlock(object):
@@ -485,9 +515,8 @@ class BlockPublisher(object):
         self._check_publish_block_frequency = check_publish_block_frequency
         self._publisher_thread = None
 
-        # A series of states that allow us to check for condition changes.
-        # These can be used to log only at the boundary of condition changes.
-        self._logging_states = _PublisherLoggingStates()
+        self._current_state = _PublisherState()
+        self._desired_state = _PublisherState()
 
     def start(self):
         self._publisher_thread = _PublisherThread(
@@ -701,9 +730,14 @@ class BlockPublisher(object):
             LOGGER.critical("on_chain_updated exception.")
             LOGGER.exception(exc)
 
-    def on_check_publish_block(self, force=False):
-        """Ask the consensus module if it is time to claim the candidate block
-        if it is then, claim it and tell the world about it.
+    def build_block(self):
+        self._desired_state.set(_PublisherState.BUILDING)
+
+    def dont_build_block(self):
+        self._desired_state.set(_PublisherState.IDLE)
+
+    def _build_block(self, force=False):
+        """Build a candidate block.
         :return:
             None
         """
@@ -715,6 +749,8 @@ class BlockPublisher(object):
                     self._build_candidate_block(self._chain_head)
 
                 if (self._candidate_block and (force or self._candidate_block.has_pending_batches())):
+
+                    self._current_state.set(_PublisherState.BUILDING)
 
                     pending_batches = []  # will receive the list of batches
                     # that were not added to the block
@@ -749,10 +785,14 @@ class BlockPublisher(object):
                         # did not validate when building the block.
                         self.on_chain_updated(None)
 
+                    self._current_state.set(_PublisherState.IDLE)
+
         # pylint: disable=broad-except
         except Exception as exc:
             LOGGER.critical("on_check_publish_block exception.")
             LOGGER.exception(exc)
+
+        self._current_state.set(_PublisherState.IDLE)
 
     def has_batch(self, batch_id):
         with self._lock:
