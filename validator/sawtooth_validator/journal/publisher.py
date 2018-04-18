@@ -29,8 +29,6 @@ from sawtooth_validator.journal.block_builder import BlockBuilder
 from sawtooth_validator.journal.block_wrapper import BlockWrapper
 from sawtooth_validator.journal.consensus.batch_publisher import \
     BatchPublisher
-from sawtooth_validator.journal.consensus.consensus_factory import \
-    ConsensusFactory
 from sawtooth_validator.journal.validation_rule_enforcer import \
     enforce_validation_rules
 
@@ -118,7 +116,6 @@ class _CandidateBlock(object):
 
     def __init__(self,
                  block_store,
-                 consensus,
                  scheduler,
                  committed_txn_cache,
                  block_builder,
@@ -131,7 +128,6 @@ class _CandidateBlock(object):
         self._pending_batch_ids = set()
         self._injected_batch_ids = set()
         self._block_store = block_store
-        self._consensus = consensus
         self._scheduler = scheduler
         self._committed_txn_cache = committed_txn_cache
         # Look-up cache for transactions that are committed in the current
@@ -296,12 +292,6 @@ class _CandidateBlock(object):
             LOGGER.debug("Dropping batch due to missing dependencies: %s",
                          batch.header_signature)
 
-    def check_publish_block(self):
-        """Check if it is okay to publish this candidate.
-        """
-        return self._consensus.check_publish_block(
-            self._block_builder.block_header)
-
     def _sign_block(self, block, identity_signer):
         """ The block should be complete and the final
         signature from the publishing validator(this validator) needs to
@@ -315,8 +305,7 @@ class _CandidateBlock(object):
 
     def finalize_block(self, identity_signer, pending_batches):
         """Compose the final Block to publish. This involves flushing
-        the scheduler, having consensus bless the block, and signing
-        the block.
+        the scheduler and signing the block.
         :param identity_signer: the cryptographic signer to sign the block
             with.
         :param pending_batches: list to receive any batches that were
@@ -411,26 +400,9 @@ class _CandidateBlock(object):
             LOGGER.debug("Abandoning block %s: no batches added", builder)
             return None
 
-        if not self._consensus.finalize_block(builder.block_header):
-            LOGGER.debug("Abandoning block %s, consensus failed to finalize "
-                         "it", builder)
-            # return all valid batches to the pending_batches list
-            pending_batches.clear()
-            pending_batches.extend([x for x in self._pending_batches
-                                    if x not in bad_batches])
-            return None
-
         builder.set_state_hash(state_hash)
         self._sign_block(builder, identity_signer)
         return builder.build_block()
-
-
-class _PublisherLoggingStates:
-    """Collects and tracks the changes in various states of the Publisher.  For
-    example it tracks 'consensus_not_ready', which denotes entering or exiting
-    of that state."""
-    def __init__(self, consensus_not_ready=False):
-        self.consensus_not_ready = False
 
 
 class BlockPublisher(object):
@@ -471,8 +443,8 @@ class BlockPublisher(object):
             chain_head (:obj:`BlockWrapper`): The initial chain head.
             identity_signer (:obj:`Signer`): Cryptographic signer for signing
                 blocks
-            data_dir (str): path to location where persistent data for the
-                consensus module can be stored.
+            data_dir (str): path to location where persistent data can be
+                stored.
             config_dir (str): path to location where configuration can be
                 found.
             batch_injector_factory (:obj:`BatchInjectorFatctory`): A factory
@@ -558,8 +530,7 @@ class BlockPublisher(object):
         return self._lock
 
     def _build_candidate_block(self, chain_head):
-        """ Build a candidate block and construct the consensus object to
-        validate it.
+        """ Build a candidate block.
         :param chain_head: The block to build on top of.
         :return: (BlockBuilder) - The candidate block in a BlockBuilder
         wrapper.
@@ -567,9 +538,6 @@ class BlockPublisher(object):
         state_view = BlockWrapper.state_view_for_block(
             chain_head,
             self._state_view_factory)
-        consensus_module = ConsensusFactory.get_configured_consensus_module(
-            chain_head.header_signature,
-            state_view)
 
         # using chain_head so so we can use the setting_cache
         max_batches = int(self._settings_cache.get_setting(
@@ -578,13 +546,6 @@ class BlockPublisher(object):
             default_value=0))
 
         public_key = self._identity_signer.get_public_key().as_hex()
-        consensus = consensus_module.\
-            BlockPublisher(block_cache=self._block_cache,
-                           state_view_factory=self._state_view_factory,
-                           batch_publisher=self._batch_publisher,
-                           data_dir=self._data_dir,
-                           config_dir=self._config_dir,
-                           validator_id=public_key)
 
         batch_injectors = []
         if self._batch_injector_factory is not None:
@@ -599,16 +560,6 @@ class BlockPublisher(object):
             signer_public_key=public_key)
         block_builder = BlockBuilder(block_header)
 
-        if not consensus.initialize_block(block_builder.block_header):
-            if not self._logging_states.consensus_not_ready:
-                self._logging_states.consensus_not_ready = True
-                LOGGER.debug("Consensus not ready to build candidate block.")
-            return None
-
-        if self._logging_states.consensus_not_ready:
-            self._logging_states.consensus_not_ready = False
-            LOGGER.debug("Consensus is ready to build candidate block.")
-
         # create a new scheduler
         scheduler = self._transaction_executor.create_scheduler(
             self._squash_handler, chain_head.state_root_hash)
@@ -620,7 +571,7 @@ class BlockPublisher(object):
         self._transaction_executor.execute(scheduler)
         self._candidate_block = _CandidateBlock(
             self._block_cache.block_store,
-            consensus, scheduler,
+            scheduler,
             committed_txn_cache,
             block_builder,
             max_batches,
@@ -763,11 +714,7 @@ class BlockPublisher(object):
                         and self._pending_batches):
                     self._build_candidate_block(self._chain_head)
 
-                if (self._candidate_block
-                        and (
-                            force
-                            or self._candidate_block.has_pending_batches())
-                        and self._candidate_block.check_publish_block()):
+                if (self._candidate_block and (force or self._candidate_block.has_pending_batches())):
 
                     pending_batches = []  # will receive the list of batches
                     # that were not added to the block
