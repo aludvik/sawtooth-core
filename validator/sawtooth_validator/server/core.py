@@ -145,6 +145,9 @@ class Validator(object):
         client_thread_pool = InstrumentedThreadPoolExecutor(
             max_workers=5,
             name='Client')
+        consensus_thread_pool = InstrumentedThreadPoolExecutor(
+            max_workers=3,
+            name='Consensus')
         sig_pool = InstrumentedThreadPoolExecutor(
             max_workers=3,
             name='Signature')
@@ -152,6 +155,7 @@ class Validator(object):
         # -- Setup Dispatchers -- #
         component_dispatcher = Dispatcher()
         network_dispatcher = Dispatcher()
+        consensus_dispatcher = Dispatcher()
 
         # -- Setup Services -- #
         component_service = Interconnect(
@@ -185,6 +189,15 @@ class Validator(object):
             authorize=True,
             signer=identity_signer,
             roles=roles)
+
+        consensus_service = Interconnect(
+            bind_consensus,
+            consensus_dispatcher,
+            secured=False,
+            heartbeat=False,
+            max_incoming_connections=20,
+            monitor=True,
+            max_future_callback_workers=10)
 
         # -- Setup Transaction Execution Platform -- #
         context_manager = ContextManager(global_state_db)
@@ -342,6 +355,10 @@ class Validator(object):
         self._network_service = network_service
         self._network_thread_pool = network_thread_pool
 
+        self._consensus_dispatcher = consensus_dispatcher
+        self._consensus_service = consensus_service
+        self._consensus_thread_pool = consensus_thread_pool
+
         self._client_thread_pool = client_thread_pool
         self._sig_pool = sig_pool
 
@@ -357,6 +374,8 @@ class Validator(object):
     def start(self):
         self._component_dispatcher.start()
         self._component_service.start()
+        self._consensus_dispatcher.start()
+        self._consensus_service.start()
         if self._genesis_controller.requires_genesis():
             self._genesis_controller.start(self._start)
         else:
@@ -386,6 +405,9 @@ class Validator(object):
         self._network_service.stop()
 
         self._component_service.stop()
+
+        self._consensus_service.stop()
+        self._consensus_dispatcher.stop()
 
         self._network_thread_pool.shutdown(wait=True)
         self._component_thread_pool.shutdown(wait=True)
