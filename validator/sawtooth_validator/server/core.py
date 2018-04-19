@@ -58,6 +58,7 @@ from sawtooth_validator.journal.receipt_store import TransactionReceiptStore
 
 from sawtooth_validator.server import network_handlers
 from sawtooth_validator.server import component_handlers
+from sawtooth_validator.server import consensus_handlers
 
 LOGGER = logging.getLogger(__name__)
 
@@ -346,6 +347,9 @@ class Validator(object):
             receipt_store, event_broadcaster, permission_verifier,
             component_thread_pool, client_thread_pool,
             sig_pool, block_publisher)
+
+        consensus_handlers.add(
+            consensus_dispatcher, consensus_thread_pool, block_publisher)
 
         # -- Store Object References -- #
         self._component_dispatcher = component_dispatcher
