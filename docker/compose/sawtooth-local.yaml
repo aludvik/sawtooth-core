@@ -89,5 +89,5 @@ services:
       - rest-api
     entrypoint: "bash -c \"\
         sawtooth keygen && \
-        tail -f /dev/null \
+        intkey workload --rate 1 --display-frequency 15 --urls http://rest-api:8008  \
         \""
