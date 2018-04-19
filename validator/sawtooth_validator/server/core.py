@@ -66,6 +66,7 @@ class Validator(object):
     def __init__(self,
                  bind_network,
                  bind_component,
+                 bind_consensus,
                  endpoint,
                  peering,
                  seeds_list,

@@ -187,15 +187,19 @@ def load_validator_config(first_config, config_dir):
 def create_validator_config(opts):
     bind_network = None
     bind_component = None
+    bind_consensus = None
     if opts.bind:
         for bind in opts.bind:
             if "network" in bind:
                 bind_network = bind[bind.find(":") + 1:]
             if "component" in bind:
                 bind_component = bind[bind.find(":") + 1:]
+            if "consensus" in bind:
+                bind_component = bind[bind.find(":") + 1:]
     return ValidatorConfig(
         bind_network=bind_network,
         bind_component=bind_component,
+        bind_consensus=bind_consensus,
         endpoint=opts.endpoint,
         peering=opts.peering,
         seeds=opts.seeds,
@@ -313,12 +317,16 @@ def main(args=None):
         sys.exit(1)
     bind_network = validator_config.bind_network
     bind_component = validator_config.bind_component
+    bind_consensus = validator_config.bind_consensus
 
     if "tcp://" not in bind_network:
         bind_network = "tcp://" + bind_network
 
     if "tcp://" not in bind_component:
         bind_component = "tcp://" + bind_component
+
+    if "tcp://" not in bind_consensus:
+        bind_consensus = "tcp://" + bind_consensus
 
     if validator_config.network_public_key is None or \
             validator_config.network_private_key is None:
@@ -370,6 +378,7 @@ def main(args=None):
     validator = Validator(
         bind_network,
         bind_component,
+        bind_consensus,
         endpoint,
         validator_config.peering,
         validator_config.seeds,
