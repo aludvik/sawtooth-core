@@ -601,6 +601,21 @@ class BlockValidator(object):
             chain_head = self._block_cache.block_store.chain_head
             result.chain_head = chain_head
 
+            try:
+                self.validate_block(block)
+            except BlockValidationFailure as err:
+                LOGGER.warning(
+                    'Block %s failed validation: %s',
+                    block, err)
+                block.status = BlockStatus.Invalid
+                callback(False, result)
+                return
+            except BlockValidationError as err:
+                LOGGER.error(
+                    'Encountered an error while validating %s: %s', blk, err)
+                callback(False, result)
+                return
+
             # Create new local variables for current and new block, since
             # these variables get modified later
             current_block = chain_head
@@ -628,6 +643,8 @@ class BlockValidator(object):
                     'Block %s failed validation: %s',
                     block, err)
                 block.status = BlockStatus.Invalid
+                callback(False, result)
+                return
             except BlockValidationError as err:
                 LOGGER.error(
                     'Encountered an error while validating %s: %s',
@@ -635,38 +652,14 @@ class BlockValidator(object):
                 callback(False, result)
                 return
 
-            valid = True
             for blk in reversed(result.new_chain):
-                if valid:
-                    try:
-                        self.validate_block(blk)
-                        # The chain_head is None when this is the genesis block or if the
-                        # block store has no chain_head.
-                        current_chain_head =\
-                                self._block_cache.block_store.chain_head
-                        if chain_head is not None:
-                            if chain_head.identifier !=\
-                                    current_chain_head.identifier:
-                                raise ChainHeadUpdated()
-                    except BlockValidationFailure as err:
-                        LOGGER.warning(
-                            'Block %s failed validation: %s',
-                            blk, err)
-                        valid = False
-                    except BlockValidationError as err:
-                        LOGGER.error(
-                            'Encountered an error while validating %s: %s',
-                            blk, err)
-                        callback(False, result)
-                    result.transaction_count += block.num_transactions
-                else:
-                    LOGGER.info(
-                        "Block marked invalid (invalid predecessor): %s", blk)
-                    blk.status = BlockStatus.Invalid
+                result.transaction_count += block.num_transactions
 
-            if not valid:
-                callback(False, result)
-                return
+            if chain_head is not None:
+                current_chain_head =\
+                    self._block_cache.block_store.chain_head
+                if chain_head.identifier != current_chain_head.identifier:
+                    raise ChainHeadUpdated()
 
             # Ask consensus if the new chain should be committed
             LOGGER.info(
