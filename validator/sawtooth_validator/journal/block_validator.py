@@ -123,7 +123,7 @@ class BlockValidator(object):
 
         self._settings_view_factory = SettingsViewFactory(state_view_factory)
 
-        self._thread_pool = InstrumentedThreadPoolExecutor(1) \
+        self._thread_pool = InstrumentedThreadPoolExecutor(10) \
             if thread_pool is None else thread_pool
 
         self._block_scheduler = BlockScheduler(block_cache)
