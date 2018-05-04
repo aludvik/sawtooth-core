@@ -31,7 +31,7 @@ pub enum Update {
     BlockCommit(BlockId),
 }
 
-#[derive(Default)]
+#[derive(Default, PartialEq)]
 pub struct BlockId(Vec<u8>);
 impl Deref for BlockId {
     type Target = Vec<u8>;
@@ -61,7 +61,7 @@ pub struct Block {
     pub payload: Vec<u8>,
 }
 
-#[derive(Default)]
+#[derive(Default, PartialEq)]
 pub struct PeerId(Vec<u8>);
 impl Deref for PeerId {
     type Target = Vec<u8>;

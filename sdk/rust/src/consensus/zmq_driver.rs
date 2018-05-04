@@ -34,6 +34,7 @@ use messaging::zmq_stream::ZmqMessageConnection;
 use messages::consensus::*;
 use messages::validator::{Message, Message_MessageType};
 
+use std::collections::HashMap;
 use std::sync::{Arc, mpsc::{channel, RecvTimeoutError, Sender}};
 
 /// Generates a random correlation id for use in Message
@@ -376,21 +377,21 @@ impl Service for ZmqService {
     }
 
     fn check_blocks(&mut self, priority: Vec<BlockId>) -> Result<(), Error> {
-        let mut request = ConsensusCheckBlockRequest::new();
+        let mut request = ConsensusCheckBlocksRequest::new();
         request.set_block_ids(protobuf::RepeatedField::from_vec(
             priority.into_iter().map(Vec::from).collect(),
         ));
 
-        let response: ConsensusCheckBlockResponse = self.rpc(
+        let response: ConsensusCheckBlocksResponse = self.rpc(
             &request,
-            Message_MessageType::CONSENSUS_CHECK_BLOCK_REQUEST,
-            Message_MessageType::CONSENSUS_CHECK_BLOCK_RESPONSE,
+            Message_MessageType::CONSENSUS_CHECK_BLOCKS_REQUEST,
+            Message_MessageType::CONSENSUS_CHECK_BLOCKS_RESPONSE,
         )?;
 
-        if response.get_status() == ConsensusCheckBlockResponse_Status::UNKNOWN_BLOCK {
+        if response.get_status() == ConsensusCheckBlocksResponse_Status::UNKNOWN_BLOCK {
             Err(Error::UnknownBlock("Block not found".into()))
         } else {
-            check_ok!(response, ConsensusCheckBlockResponse_Status::OK)
+            check_ok!(response, ConsensusCheckBlocksResponse_Status::OK)
         }
     }
 
@@ -445,7 +446,7 @@ impl Service for ZmqService {
         }
     }
 
-    fn get_blocks(&mut self, block_ids: Vec<BlockId>) -> Result<Vec<Block>, Error> {
+    fn get_blocks(&mut self, block_ids: Vec<BlockId>) -> Result<HashMap<BlockId, Block>, Error> {
         let mut request = ConsensusBlocksGetRequest::new();
         request.set_block_ids(protobuf::RepeatedField::from_vec(
             block_ids.into_iter().map(Vec::from).collect(),
@@ -466,11 +467,13 @@ impl Service for ZmqService {
         Ok(response
             .take_blocks()
             .into_iter()
-            .map(Block::from)
+            .map(|blk|
+                (BlockId::from(blk.get_block_id().clone()), Block::from(blk))
+            )
             .collect())
     }
 
-    fn get_settings(&mut self, block_id: BlockId, keys: Vec<String>) -> Result<Vec<String>, Error> {
+    fn get_settings(&mut self, block_id: BlockId, keys: Vec<String>) -> Result<HashMap<String, String>, Error> {
         let mut request = ConsensusSettingsGetRequest::new();
         request.set_block_id(block_id.into());
         request.set_keys(protobuf::RepeatedField::from_vec(keys));
@@ -498,7 +501,7 @@ impl Service for ZmqService {
         &mut self,
         block_id: BlockId,
         addresses: Vec<String>,
-    ) -> Result<Vec<Vec<u8>>, Error> {
+    ) -> Result<HashMap<String, Vec<u8>>, Error> {
         let mut request = ConsensusStateGetRequest::new();
         request.set_block_id(block_id.into());
         request.set_addresses(protobuf::RepeatedField::from_vec(addresses));
@@ -857,11 +860,11 @@ mod tests {
 
         service_test!(
             &socket,
-            ConsensusCheckBlockResponse::new(),
-            ConsensusCheckBlockResponse_Status::OK,
-            Message_MessageType::CONSENSUS_CHECK_BLOCK_RESPONSE,
-            ConsensusCheckBlockRequest,
-            Message_MessageType::CONSENSUS_CHECK_BLOCK_REQUEST
+            ConsensusCheckBlocksResponse::new(),
+            ConsensusCheckBlocksResponse_Status::OK,
+            Message_MessageType::CONSENSUS_CHECK_BLOCKS_RESPONSE,
+            ConsensusCheckBlockssRequest,
+            Message_MessageType::CONSENSUS_CHECK_BLOCKS_REQUEST
         );
 
         service_test!(
