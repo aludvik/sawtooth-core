@@ -80,6 +80,7 @@ class BlockValidator(object):
 
     def __init__(self,
                  block_cache,
+                 chain_head_lock,
                  state_view_factory,
                  transaction_executor,
                  squash_handler,
@@ -92,6 +93,12 @@ class BlockValidator(object):
         Args:
             block_cache: The cache of all recent blocks and the processing
                 state associated with them.
+            chain_head_lock: Lock to hold while the chain head is being
+                updated, this prevents other components that depend on the
+                chain head and the BlockStore from having the BlockStore change
+                under them. This lock is only for core Journal components
+                (BlockPublisher and ChainController), other components should
+                handle block not found errors from the BlockStore explicitly.
             state_view_factory: A factory that can be used to create read-
                 only views of state for a particular merkle root, in
                 particular the state as it existed when a particular block
@@ -113,6 +120,7 @@ class BlockValidator(object):
             None
         """
         self._block_cache = block_cache
+        self._chain_head_lock = chain_head_lock
         self._state_view_factory = state_view_factory
         self._transaction_executor = transaction_executor
         self._squash_handler = squash_handler
@@ -164,27 +172,30 @@ class BlockValidator(object):
 
         scheduler = None
         try:
-            chain_commit_state = ChainCommitState(
-                blkw.previous_block_id,
-                self._block_cache,
-                self._block_cache.block_store)
+            # Need to make sure the block store is not modified while we check
+            # for duplicates
+            with self._chain_head_lock:
+                chain_commit_state = ChainCommitState(
+                    blkw.previous_block_id,
+                    self._block_cache,
+                    self._block_cache.block_store)
+
+                chain_commit_state.check_for_duplicate_batches(
+                    blkw.block.batches)
+
+                transactions = []
+                for batch in blkw.block.batches:
+                    transactions.extend(batch.transactions)
+
+                chain_commit_state.check_for_duplicate_transactions(
+                    transactions)
+
+                chain_commit_state.check_for_transaction_dependencies(
+                    transactions)
 
             scheduler = self._transaction_executor.create_scheduler(
                 self._squash_handler, prev_state_root)
             self._transaction_executor.execute(scheduler)
-
-            chain_commit_state.check_for_duplicate_batches(
-                blkw.block.batches)
-
-            transactions = []
-            for batch in blkw.block.batches:
-                transactions.extend(batch.transactions)
-
-            chain_commit_state.check_for_duplicate_transactions(
-                transactions)
-
-            chain_commit_state.check_for_transaction_dependencies(
-                transactions)
 
             for batch, has_more in look_ahead(blkw.block.batches):
                 if has_more:

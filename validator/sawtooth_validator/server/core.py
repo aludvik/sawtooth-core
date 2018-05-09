@@ -284,6 +284,7 @@ class Validator(object):
 
         block_validator = BlockValidator(
             block_cache=block_cache,
+            chain_head_lock=block_publisher.chain_head_lock,
             state_view_factory=state_view_factory,
             transaction_executor=transaction_executor,
             squash_handler=context_manager.get_squash_handler(),
