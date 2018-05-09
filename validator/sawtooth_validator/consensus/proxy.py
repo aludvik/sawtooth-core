@@ -15,6 +15,8 @@
 
 import logging
 
+from sawtooth_validator.journal.publisher import EmptyBlock
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -37,13 +39,27 @@ class ConsensusProxy:
 
     # Using block publisher
     def initialize_block(self, previous_id):
-        raise NotImplementedError()
+        LOGGER.info("ConsensusProxy.initialize_block")
+        if previous_id:
+            self._block_publisher.initialize_block(
+                hex(previous_id))
+        else:
+            self._block_publisher.initialize_block(
+                self._chain_controller.chain_head)
 
     def finalize_block(self, consensus_data):
-        raise NotImplementedError()
+        LOGGER.info("ConsensusProxy.finalize_block")
+        try:
+            result = self._block_publisher.finalize_block(
+                consensus=consensus_data)
+        except EmptyBlock:
+            LOGGER.warn("Tried to finalize an empty block")
+        else:
+            self._block_publisher.publish_block(result.block, result.injected_batches)
 
     def cancel_block(self):
-        raise NotImplementedError()
+        LOGGER.info("ConsensusProxy.cancel_block")
+        self._block_publisher.cancel_block()
 
 
     # Using chain controller

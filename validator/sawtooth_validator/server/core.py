@@ -306,7 +306,8 @@ class Validator(object):
             permission_verifier=permission_verifier,
             check_publish_block_frequency=0.1,
             batch_observers=[batch_tracker],
-            batch_injector_factory=batch_injector_factory)
+            batch_injector_factory=batch_injector_factory,
+            consensus_engine_enabled=consensus_engine_enabled)
 
         block_validator = BlockValidator(
             block_cache=block_cache,

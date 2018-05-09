@@ -150,11 +150,7 @@ class ConsensusFinalizeBlockHandler(ConsensusServiceHandler):
         return validator_pb2.Message.CONSENSUS_FINALIZE_BLOCK_REQUEST
 
     def handle_request(self, request, response):
-        try:
-            self._proxy.finalize_block(request.data)
-        except EmptyBlock:
-            response.status =\
-                consensus_pb2.ConsensusFinalizeBlockResponse.EMPTY_BLOCK
+        self._proxy.finalize_block(request.data)
 
 
 class ConsensusCancelBlockHandler(ConsensusServiceHandler):
