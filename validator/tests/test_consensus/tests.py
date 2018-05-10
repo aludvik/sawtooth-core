@@ -1,0 +1,16 @@
+from sawtooth_validator.consensus import handlers
+from sawtooth_validator.consensus.proxy import ConsensusProxy
+from sawtooth_validator.consensus.notifier import ConsensusNotifier
+
+handlers.ConsensusSendToHandler(None)
+handlers.ConsensusBroadcastHandler(None)
+handlers.ConsensusInitializeBlockHandler(None)
+handlers.ConsensusFinalizeBlockHandler(None)
+handlers.ConsensusCancelBlockHandler(None)
+handlers.ConsensusCheckBlockHandler(None)
+handlers.ConsensusCommitBlockHandler(None)
+handlers.ConsensusIgnoreBlockHandler(None)
+handlers.ConsensusFailBlockHandler(None)
+handlers.ConsensusBlocksGetHandler(None)
+handlers.ConsensusSettingsGetHandler(None)
+handlers.ConsensusStateGetHandler(None)
