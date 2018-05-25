@@ -21,6 +21,7 @@ extern crate crypto;
 extern crate hex;
 extern crate libc;
 extern crate lmdb_zero;
+extern crate parking_lot;
 extern crate protobuf;
 extern crate python3_sys as py_ffi;
 

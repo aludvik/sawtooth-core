@@ -16,6 +16,7 @@
  */
 
 use batch::Batch;
+use block::Block;
 
 use std::collections::{HashSet, VecDeque};
 use std::mem;
@@ -23,6 +24,69 @@ use std::slice::Iter;
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, SendError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
+use std::thread;
+
+use journal::candidate_block::CandidateBlock;
+
+use parking_lot::ReentrantMutex;
+
+const NUM_PUBLISH_COUNT_SAMPLES: usize = 5;
+const INITIAL_PUBLISH_COUNT: usize = 30;
+
+/// Collects and tracks the changes in various states of the
+/// Publisher. For example it tracks `consensus_ready`,
+/// which denotes entering or exiting this state.
+struct PublisherLoggingStates {
+    consensus_ready: bool
+}
+
+impl PublisherLoggingStates {
+    fn new() -> Self {
+        PublisherLoggingStates {
+            consensus_ready: true,
+        }
+    }
+}
+
+pub struct BlockPublisher {
+    candidate_block: Arc<Mutex<Option<CandidateBlock>>>,
+    check_publish_frequency: u64,
+
+    pending_batches: PendingBatchesPool,
+
+    chain_head: Arc<ReentrantMutex<()>>,
+}
+
+impl BlockPublisher {
+    pub fn new(batch_queue: IncomingBatchReceiver, chain_head: Arc<ReentrantMutex<()>>, check_publish_frequency: u64) -> Self {
+        let block_publisher = BlockPublisher {
+            candidate_block: Arc::new(Mutex::new(None)),
+            chain_head,
+            check_publish_frequency,
+            pending_batches: PendingBatchesPool::new(NUM_PUBLISH_COUNT_SAMPLES, INITIAL_PUBLISH_COUNT),
+        };
+        thread::spawn(move || {
+            loop {
+                if let Ok(batch) = batch_queue.get(Duration::from_millis(check_publish_frequency)) {
+                    block_publisher.on_batch_received(batch);
+                }
+            }
+        });
+        block_publisher
+    }
+
+    pub fn on_batch_received(&self, batch: Batch) {
+        let _ = self.chain_head.lock();
+        // TODO: permission verifier
+        if let Some(candidate_block) = self.candidate_block.lock().unwrap() {
+            if candidate_block.can_add_batch() {
+                candidate_block.add_batch(batch);
+            }
+        }
+
+    }
+
+}
 
 /// This queue keeps track of the batch ids so that components on the edge
 /// can filter out duplicates early. However, there is still an opportunity for
