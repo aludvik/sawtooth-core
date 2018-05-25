@@ -18,6 +18,7 @@
 use batch::Batch;
 use block::Block;
 
+use cpython::{PyObject};
 use std::collections::{HashSet, VecDeque};
 use std::mem;
 use std::slice::Iter;
@@ -86,6 +87,80 @@ impl BlockPublisher {
 
     }
 
+}
+
+
+pub struct BlockPublisher {
+    transaction_executor: PyObject,
+    block_cache: PyObject,
+    state_view_factory: PyObject,
+    settings_cache: PyObject,
+    block_sender: PyObject,
+    batch_sender: PyObject,
+    chain_head: PyObject,
+    identity_signer: PyObject,
+    data_dir: PyObject,
+    config_dir: PyObject,
+    permission_verifier: PyObject,
+    check_publish_block_frequency: u64,
+    batch_observers: Vec<PyObject>,
+    batch_injector_factory: PyObject,
+}
+
+impl BlockPublisher {
+    pub fn new(
+        transaction_executor: PyObject,
+        block_cache: PyObject,
+        state_view_factory: PyObject,
+        settings_cache: PyObject,
+        block_sender: PyObject,
+        batch_sender: PyObject,
+        chain_head: PyObject,
+        identity_signer: PyObject,
+        data_dir: PyObject,
+        config_dir: PyObject,
+        permission_verifier: PyObject,
+        check_publish_block_frequency: u64,
+        batch_observers: Vec<PyObject>,
+        batch_injector_factory: PyObject,
+    ) -> Self {
+        BlockPublisher {
+            transaction_executor,
+            block_cache,
+            state_view_factory,
+            settings_cache,
+            block_sender,
+            batch_sender,
+            chain_head,
+            identity_signer,
+            data_dir,
+            config_dir,
+            permission_verifier,
+            check_publish_block_frequency,
+            batch_observers,
+            batch_injector_factory,
+        }
+    }
+
+    pub fn start(&self) {
+        unimplemented!();
+    }
+
+    pub fn stop(&self) {
+        unimplemented!();
+    }
+
+    pub fn pending_batch_info(&self) -> (usize, usize) {
+        unimplemented!();
+    }
+
+    pub fn on_chain_updated(&self, _chain_head: PyObject, _committed_batches: Vec<Batch>, _uncommitted_batches: Vec<Batch>) {
+        unimplemented!();
+    }
+
+    pub fn has_batch(&self, _batch_id: &str) -> bool {
+        unimplemented!();
+    }
 }
 
 /// This queue keeps track of the batch ids so that components on the edge
