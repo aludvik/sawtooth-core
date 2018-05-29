@@ -21,7 +21,7 @@ use std::ffi::CStr;
 use cpython::{PyObject, PyList, Python};
 
 use batch::Batch;
-use journal::publisher::BlockPublisher;
+use journal::publisher::{BlockPublisher, IncomingBatchSender};
 
 #[repr(u32)]
 #[derive(Debug)]
@@ -152,6 +152,21 @@ pub extern "C" fn block_publisher_pending_batch_info(
         *length = info.0;
         *limit = info.1;
     }
+    ErrorCode::Success
+}
+
+#[no_mangle]
+pub extern "C" fn block_publisher_batch_sender(
+    publisher: *mut c_void,
+    incoming_batch_sender: *mut *const c_void,
+) -> ErrorCode {
+    check_null!(publisher);
+    let batch_tx = unsafe { (*(publisher as *mut BlockPublisher)).batch_sender() };
+    let batch_tx_ptr: *mut IncomingBatchSender = Box::into_raw(Box::new(batch_tx));
+    unsafe {
+        *incoming_batch_sender = batch_tx_ptr as *const c_void;
+    }
+
     ErrorCode::Success
 }
 
