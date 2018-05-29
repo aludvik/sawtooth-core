@@ -91,6 +91,10 @@ impl BlockPublisher {
         unimplemented!();
     }
 
+    pub fn batch_sender(&self) -> IncomingBatchSender {
+        self.batch_tx.clone()
+    }
+
     pub fn pending_batch_info(&self) -> (usize, usize) {
         unimplemented!();
     }
