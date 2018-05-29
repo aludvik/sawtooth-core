@@ -46,6 +46,7 @@ pub extern "C" fn block_publisher_new(
     block_sender_ptr: *mut py_ffi::PyObject,
     batch_sender_ptr: *mut py_ffi::PyObject,
     chain_head_ptr: *mut py_ffi::PyObject,
+    chain_head_lock_ptr: *mut py_ffi::PyObject,
     identity_signer_ptr: *mut py_ffi::PyObject,
     data_dir_ptr: *mut py_ffi::PyObject,
     config_dir_ptr: *mut py_ffi::PyObject,
@@ -63,6 +64,7 @@ pub extern "C" fn block_publisher_new(
         block_sender_ptr,
         batch_sender_ptr,
         chain_head_ptr,
+        chain_head_lock_ptr,
         identity_signer_ptr,
         data_dir_ptr,
         config_dir_ptr,
@@ -81,6 +83,7 @@ pub extern "C" fn block_publisher_new(
     let block_sender = unsafe { PyObject::from_borrowed_ptr(py, block_sender_ptr) };
     let batch_sender = unsafe { PyObject::from_borrowed_ptr(py, batch_sender_ptr) };
     let chain_head = unsafe { PyObject::from_borrowed_ptr(py, chain_head_ptr) };
+    let chain_head_lock = unsafe { PyObject::from_borrowed_ptr(py, chain_head_lock_ptr) };
     let identity_signer = unsafe { PyObject::from_borrowed_ptr(py, identity_signer_ptr) };
     let data_dir = unsafe { PyObject::from_borrowed_ptr(py, data_dir_ptr) };
     let config_dir = unsafe { PyObject::from_borrowed_ptr(py, config_dir_ptr) };
@@ -100,6 +103,7 @@ pub extern "C" fn block_publisher_new(
         block_sender,
         batch_sender,
         chain_head,
+        chain_head_lock,
         identity_signer,
         data_dir,
         config_dir,

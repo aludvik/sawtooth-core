@@ -34,6 +34,7 @@ pub struct BlockPublisher {
     block_sender: PyObject,
     batch_sender: PyObject,
     chain_head: PyObject,
+    chain_head_lock: PyObject,
     identity_signer: PyObject,
     data_dir: PyObject,
     config_dir: PyObject,
@@ -54,6 +55,7 @@ impl BlockPublisher {
         block_sender: PyObject,
         batch_sender: PyObject,
         chain_head: PyObject,
+        chain_head_lock: PyObject,
         identity_signer: PyObject,
         data_dir: PyObject,
         config_dir: PyObject,
@@ -71,6 +73,7 @@ impl BlockPublisher {
             block_sender,
             batch_sender,
             chain_head,
+            chain_head_lock,
             identity_signer,
             data_dir,
             config_dir,
@@ -89,6 +92,10 @@ impl BlockPublisher {
 
     pub fn stop(&self) {
         unimplemented!();
+    }
+
+    pub fn batch_sender(&self) -> IncomingBatchSender {
+        self.batch_tx.clone()
     }
 
     pub fn pending_batch_info(&self) -> (usize, usize) {

@@ -268,6 +268,8 @@ class Validator(object):
             state_view_factory=state_view_factory,
             signer=identity_signer)
 
+        chain_head_lock = threading.RLock()
+
         block_publisher = BlockPublisher(
             transaction_executor=transaction_executor,
             block_cache=block_cache,
@@ -276,6 +278,7 @@ class Validator(object):
             block_sender=block_sender,
             batch_sender=batch_sender,
             chain_head=block_store.chain_head,
+            chain_head_lock=chain_head_lock,
             identity_signer=identity_signer,
             data_dir=data_dir,
             config_dir=config_dir,
@@ -283,6 +286,8 @@ class Validator(object):
             check_publish_block_frequency=0.1,
             batch_observers=[batch_tracker],
             batch_injector_factory=batch_injector_factory)
+
+        block_publisher_batch_sender = block_publisher.batch_sender()
 
         block_validator = BlockValidator(
             block_cache=block_cache,
@@ -324,7 +329,7 @@ class Validator(object):
 
         responder = Responder(completer)
 
-        completer.set_on_batch_received(block_publisher.queue_batch)
+        completer.set_on_batch_received(block_publisher_batch_sender.send)
         completer.set_on_block_received(chain_controller.queue_block)
         completer.set_chain_has_block(chain_controller.has_block)
 
