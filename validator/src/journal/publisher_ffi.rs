@@ -15,10 +15,10 @@
  * ------------------------------------------------------------------------------
  */
 use py_ffi;
-use std::os::raw::{c_char, c_void};
 use std::ffi::CStr;
+use std::os::raw::{c_char, c_void};
 
-use cpython::{PyObject, PyList, Python};
+use cpython::{PyList, PyObject, Python};
 
 use batch::Batch;
 use journal::publisher::BlockPublisher;
@@ -85,12 +85,18 @@ pub extern "C" fn block_publisher_new(
     let data_dir = unsafe { PyObject::from_borrowed_ptr(py, data_dir_ptr) };
     let config_dir = unsafe { PyObject::from_borrowed_ptr(py, config_dir_ptr) };
     let permission_verifier = unsafe { PyObject::from_borrowed_ptr(py, permission_verifier_ptr) };
-    let check_publish_block_frequency = unsafe { PyObject::from_borrowed_ptr(py, check_publish_block_frequency_ptr) };
+    let check_publish_block_frequency =
+        unsafe { PyObject::from_borrowed_ptr(py, check_publish_block_frequency_ptr) };
     let batch_observers = unsafe { PyObject::from_borrowed_ptr(py, batch_observers_ptr) };
-    let batch_injector_factory = unsafe { PyObject::from_borrowed_ptr(py, batch_injector_factory_ptr) };
+    let batch_injector_factory =
+        unsafe { PyObject::from_borrowed_ptr(py, batch_injector_factory_ptr) };
 
     let check_publish_block_frequency: u64 = check_publish_block_frequency.extract(py).unwrap();
-    let batch_observers: Vec<PyObject> = batch_observers.extract::<PyList>(py).unwrap().iter(py).collect();
+    let batch_observers: Vec<PyObject> = batch_observers
+        .extract::<PyList>(py)
+        .unwrap()
+        .iter(py)
+        .collect();
 
     let publisher = BlockPublisher::new(
         transaction_executor,
@@ -105,8 +111,9 @@ pub extern "C" fn block_publisher_new(
         config_dir,
         permission_verifier,
         check_publish_block_frequency, // Extract int
-        batch_observers, // Extract PyList
-        batch_injector_factory);
+        batch_observers,               // Extract PyList
+        batch_injector_factory,
+    );
 
     unsafe {
         *block_publisher_ptr = Box::into_raw(Box::new(publisher)) as *const c_void;
@@ -125,18 +132,14 @@ pub extern "C" fn block_publisher_drop(publisher: *mut c_void) -> ErrorCode {
 #[no_mangle]
 pub extern "C" fn block_publisher_start(publisher: *mut c_void) -> ErrorCode {
     check_null!(publisher);
-    unsafe {
-        (*(publisher as *mut BlockPublisher)).start()
-    }
+    unsafe { (*(publisher as *mut BlockPublisher)).start() }
     ErrorCode::Success
 }
 
 #[no_mangle]
 pub extern "C" fn block_publisher_stop(publisher: *mut c_void) -> ErrorCode {
     check_null!(publisher);
-    unsafe {
-        (*(publisher as *mut BlockPublisher)).stop()
-    }
+    unsafe { (*(publisher as *mut BlockPublisher)).stop() }
     ErrorCode::Success
 }
 
@@ -144,10 +147,10 @@ pub extern "C" fn block_publisher_stop(publisher: *mut c_void) -> ErrorCode {
 pub extern "C" fn block_publisher_pending_batch_info(
     publisher: *mut c_void,
     length: *mut usize,
-    limit: *mut usize
+    limit: *mut usize,
 ) -> ErrorCode {
     check_null!(publisher);
-     unsafe {
+    unsafe {
         let info = (*(publisher as *mut BlockPublisher)).pending_batch_info();
         *length = info.0;
         *limit = info.1;
@@ -160,19 +163,21 @@ pub extern "C" fn block_publisher_on_chain_updated(
     publisher: *mut c_void,
     chain_head_ptr: *mut py_ffi::PyObject,
     committed_batches_ptr: *mut py_ffi::PyObject,
-    uncommitted_batches_ptr: *mut py_ffi::PyObject
+    uncommitted_batches_ptr: *mut py_ffi::PyObject,
 ) -> ErrorCode {
     check_null!(publisher);
     let py = unsafe { Python::assume_gil_acquired() };
     let chain_head = unsafe { PyObject::from_borrowed_ptr(py, chain_head_ptr) };
-    let committed_batches: Vec<Batch> = unsafe { PyObject::from_borrowed_ptr(py, committed_batches_ptr) }
-        .extract::<PyList>(py)
+    let committed_batches: Vec<Batch> = unsafe {
+        PyObject::from_borrowed_ptr(py, committed_batches_ptr)
+    }.extract::<PyList>(py)
         .unwrap()
         .iter(py)
         .map(|pyobj| pyobj.extract::<Batch>(py).unwrap())
         .collect();
-    let uncommitted_batches: Vec<Batch> = unsafe { PyObject::from_borrowed_ptr(py, uncommitted_batches_ptr) }
-        .extract::<PyList>(py)
+    let uncommitted_batches: Vec<Batch> = unsafe {
+        PyObject::from_borrowed_ptr(py, uncommitted_batches_ptr)
+    }.extract::<PyList>(py)
         .unwrap()
         .iter(py)
         .map(|pyobj| pyobj.extract::<Batch>(py).unwrap())
@@ -191,7 +196,7 @@ pub extern "C" fn block_publisher_on_chain_updated(
 pub extern "C" fn block_publisher_has_batch(
     publisher: *mut c_void,
     batch_id: *const c_char,
-    has: *mut bool
+    has: *mut bool,
 ) -> ErrorCode {
     check_null!(publisher);
     let batch_id = match unsafe { CStr::from_ptr(batch_id).to_str() } {
