@@ -41,6 +41,8 @@ pub struct BlockPublisher {
     check_publish_block_frequency: u64,
     batch_observers: Vec<PyObject>,
     batch_injector_factory: PyObject,
+    batch_tx: IncomingBatchSender,
+    batch_rx: IncomingBatchReceiver,
 }
 
 impl BlockPublisher {
@@ -60,6 +62,7 @@ impl BlockPublisher {
         batch_observers: Vec<PyObject>,
         batch_injector_factory: PyObject,
     ) -> Self {
+        let (batch_tx, batch_rx) = make_batch_queue();
         BlockPublisher {
             transaction_executor,
             block_cache,
@@ -75,6 +78,8 @@ impl BlockPublisher {
             check_publish_block_frequency,
             batch_observers,
             batch_injector_factory,
+            batch_tx,
+            batch_rx,
         }
     }
 
@@ -133,6 +138,7 @@ impl IncomingBatchReceiver {
     }
 }
 
+#[derive(Clone)]
 pub struct IncomingBatchSender {
     ids: Arc<Mutex<HashSet<String>>>,
     sender: Sender<Batch>,
