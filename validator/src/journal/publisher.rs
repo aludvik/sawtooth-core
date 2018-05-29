@@ -18,18 +18,20 @@
 use batch::Batch;
 use block::Block;
 
-use cpython::{PyObject};
+use cpython;
+use cpython::ObjectProtocol;
+use cpython::PyObject;
 use std::collections::{HashSet, VecDeque};
 use std::mem;
 use std::slice::Iter;
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, SendError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::Duration;
 use std::thread;
+use std::time::Duration;
 
-use journal::candidate_block::CandidateBlock;
-
-use parking_lot::ReentrantMutex;
+use execution::execution_platform::ExecutionPlatform;
+use execution::py_executor::PyExecutor;
+use journal::candidate_block::{BlockPublisherError, CandidateBlock};
 
 const NUM_PUBLISH_COUNT_SAMPLES: usize = 5;
 const INITIAL_PUBLISH_COUNT: usize = 30;
@@ -38,7 +40,7 @@ const INITIAL_PUBLISH_COUNT: usize = 30;
 /// Publisher. For example it tracks `consensus_ready`,
 /// which denotes entering or exiting this state.
 struct PublisherLoggingStates {
-    consensus_ready: bool
+    consensus_ready: bool,
 }
 
 impl PublisherLoggingStates {
@@ -50,48 +52,7 @@ impl PublisherLoggingStates {
 }
 
 pub struct BlockPublisher {
-    candidate_block: Arc<Mutex<Option<CandidateBlock>>>,
-    check_publish_frequency: u64,
-
-    pending_batches: PendingBatchesPool,
-
-    chain_head: Arc<ReentrantMutex<()>>,
-}
-
-impl BlockPublisher {
-    pub fn new(batch_queue: IncomingBatchReceiver, chain_head: Arc<ReentrantMutex<()>>, check_publish_frequency: u64) -> Self {
-        let block_publisher = BlockPublisher {
-            candidate_block: Arc::new(Mutex::new(None)),
-            chain_head,
-            check_publish_frequency,
-            pending_batches: PendingBatchesPool::new(NUM_PUBLISH_COUNT_SAMPLES, INITIAL_PUBLISH_COUNT),
-        };
-        thread::spawn(move || {
-            loop {
-                if let Ok(batch) = batch_queue.get(Duration::from_millis(check_publish_frequency)) {
-                    block_publisher.on_batch_received(batch);
-                }
-            }
-        });
-        block_publisher
-    }
-
-    pub fn on_batch_received(&self, batch: Batch) {
-        let _ = self.chain_head.lock();
-        // TODO: permission verifier
-        if let Some(candidate_block) = self.candidate_block.lock().unwrap() {
-            if candidate_block.can_add_batch() {
-                candidate_block.add_batch(batch);
-            }
-        }
-
-    }
-
-}
-
-
-pub struct BlockPublisher {
-    transaction_executor: PyObject,
+    tep: Box<ExecutionPlatform>,
     block_cache: PyObject,
     state_view_factory: PyObject,
     settings_cache: PyObject,
@@ -105,6 +66,10 @@ pub struct BlockPublisher {
     check_publish_block_frequency: u64,
     batch_observers: Vec<PyObject>,
     batch_injector_factory: PyObject,
+
+    candidate_block: Arc<Mutex<Option<CandidateBlock>>>,
+    chain_head_lock: Arc<Mutex<Option<Block>>>,
+    publisher_logging_states: PublisherLoggingStates,
 }
 
 impl BlockPublisher {
@@ -124,8 +89,10 @@ impl BlockPublisher {
         batch_observers: Vec<PyObject>,
         batch_injector_factory: PyObject,
     ) -> Self {
+        let tep = Box::new(PyExecutor::new(transaction_executor).unwrap());
+
         BlockPublisher {
-            transaction_executor,
+            tep,
             block_cache,
             state_view_factory,
             settings_cache,
@@ -139,6 +106,9 @@ impl BlockPublisher {
             check_publish_block_frequency,
             batch_observers,
             batch_injector_factory,
+            candidate_block: Arc::new(Mutex::new(None)),
+            chain_head_lock: Arc::new(Mutex::new(None)),
+            publisher_logging_states: PublisherLoggingStates::new(),
         }
     }
 
@@ -154,8 +124,78 @@ impl BlockPublisher {
         unimplemented!();
     }
 
-    pub fn on_chain_updated(&self, _chain_head: PyObject, _committed_batches: Vec<Batch>, _uncommitted_batches: Vec<Batch>) {
-        unimplemented!();
+    fn initialize_block(&self, previous_block: PyObject) -> Result<(), BlockPublisherError> {
+        Ok(())
+    }
+
+    fn is_building_block(&self) -> bool {
+        if let Ok(candidate_block) = self.candidate_block.lock() {
+            (*candidate_block).is_some()
+        } else {
+            warn!("BlockPublisher Candidate block lock is poisoned");
+            false
+        }
+    }
+
+    fn can_build_block(&self) -> bool {
+        if let Ok(chain_head) = self.chain_head_lock.lock() {
+            (*chain_head).is_some() // & !self.pending_batches.is_empty()
+        } else {
+            warn!("BlockPublisher chain_head lock is poisoned!");
+            false
+        }
+    }
+
+    fn log_consensus_state(&mut self, ready: bool) {
+        if ready && !self.publisher_logging_states.consensus_ready {
+            self.publisher_logging_states.consensus_ready = true;
+            debug!("Consensus is ready to build candidate block");
+        } else {
+            self.publisher_logging_states.consensus_ready = false;
+            debug!("Consensus not ready to build candidate block");
+        }
+    }
+
+    fn cancel_block(&self) {
+        if let Ok(mut candidate_block) = self.candidate_block.lock() {
+            if let Some(ref mut candidate_block) = *candidate_block {
+                candidate_block.cancel();
+            }
+        } else {
+            warn!("Block Publisher, candidate block lock is poisoned");
+        }
+    }
+
+    pub fn on_chain_updated(
+        &self,
+        chain_head: PyObject,
+        committed_batches: Vec<Batch>,
+        uncommitted_batches: Vec<Batch>,
+    ) {
+        if let Ok(mut original_chain_head) = self.chain_head_lock.lock() {
+            let gil = cpython::Python::acquire_gil();
+            let py = gil.python();
+            if let Ok(chain_head_is_some) = chain_head.is_true(py) {
+                if chain_head_is_some {
+                    if let Ok(chain_head) = chain_head.extract::<Block>(py) {
+                        info!(
+                            "Now building on top of block, {}",
+                            chain_head.header_signature
+                        );
+                        *original_chain_head = Some(chain_head);
+                        self.cancel_block()
+
+                    // TODO: add batches from chain_head: Block to pending batches
+                    } else {
+                        warn!("BlockPublisher, on_chain_updated, Failed to extract Block from chain_head");
+                    }
+                } else {
+                    info!("Block publishing is suspended until new chain head arrives");
+                }
+            } else {
+                warn!("BlockPublisher, chain_head lock poisoned");
+            }
+        }
     }
 
     pub fn has_batch(&self, _batch_id: &str) -> bool {
