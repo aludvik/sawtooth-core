@@ -21,5 +21,6 @@ pub mod block_manager;
 pub mod block_store;
 mod candidate_block;
 mod chain_commit_state;
+pub mod incoming_batch_queue_ffi;
 pub mod publisher;
 pub mod publisher_ffi;

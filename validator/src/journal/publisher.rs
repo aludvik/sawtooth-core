@@ -67,6 +67,9 @@ pub struct BlockPublisher {
     batch_observers: Vec<PyObject>,
     batch_injector_factory: PyObject,
 
+    batch_tx: IncomingBatchSender,
+    batch_rx: IncomingBatchReceiver,
+
     candidate_block: Arc<Mutex<Option<CandidateBlock>>>,
     chain_head_lock: Arc<Mutex<Option<Block>>>,
     publisher_logging_states: PublisherLoggingStates,
@@ -91,6 +94,8 @@ impl BlockPublisher {
     ) -> Self {
         let tep = Box::new(PyExecutor::new(transaction_executor).unwrap());
 
+        let (batch_tx, batch_rx) = make_batch_queue();
+
         BlockPublisher {
             tep,
             block_cache,
@@ -106,6 +111,8 @@ impl BlockPublisher {
             check_publish_block_frequency,
             batch_observers,
             batch_injector_factory,
+            batch_tx,
+            batch_rx,
             candidate_block: Arc::new(Mutex::new(None)),
             chain_head_lock: Arc::new(Mutex::new(None)),
             publisher_logging_states: PublisherLoggingStates::new(),
@@ -126,6 +133,10 @@ impl BlockPublisher {
 
     fn initialize_block(&self, previous_block: PyObject) -> Result<(), BlockPublisherError> {
         Ok(())
+    }
+
+    pub fn batch_sender(&self) -> IncomingBatchSender {
+        self.batch_tx.clone()
     }
 
     fn is_building_block(&self) -> bool {
@@ -237,6 +248,7 @@ impl IncomingBatchReceiver {
     }
 }
 
+#[derive(Clone)]
 pub struct IncomingBatchSender {
     ids: Arc<Mutex<HashSet<String>>>,
     sender: Sender<Batch>,

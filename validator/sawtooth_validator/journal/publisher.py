@@ -111,6 +111,18 @@ class _PublisherThread(InstrumentedThread):
         self._exit = True
 
 
+class IncomingBatchSender(OwnedPointer):
+    def  __init__(self, sender_ptr):
+        super().__init__("incoming_batch_sender_drop")
+        self.pointer = sender_ptr
+
+    def send(self, item):
+        LIBRARY.call(
+            "incoming_batch_sender_send",
+            self._ptr,
+            ctypes.py_object(item))
+
+
 class BlockPublisher(OwnedPointer):
     """
     Responsible for generating new blocks and publishing them when the
@@ -182,21 +194,18 @@ class BlockPublisher(OwnedPointer):
             self.pointer,
             *args) == CommonErrorCode.Success
 
+    def batch_sender(self):
+        sender_ptr = ctypes.c_void_p()
+        self._call(
+            'batch_sender',
+            ctypes.byref(sender_ptr))
+        return IncomingBatchSender(sender_ptr)
+
     def start(self):
         self._call('start')
 
     def stop(self):
         self._call('stop')
-
-    # TODO:
-    # def queue_batch(self, batch):
-    #     """
-    #     New batch has been received, queue it with the BlockPublisher for
-    #     inclusion in the next block.
-    #     """
-    #     self._batch_queue.put(batch)
-    #     for observer in self._batch_observers:
-    #         observer.notify_batch_pending(batch)
 
     def pending_batch_info(self):
         """Returns a tuple of the current size of the pending batch queue
