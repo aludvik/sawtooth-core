@@ -37,10 +37,10 @@ pub enum CandidateBlockError {
 }
 
 pub struct FinalizeBlockResult {
-    block: Option<cpython::PyObject>,
-    remaining_batches: Vec<Batch>,
-    last_batch: Option<Batch>,
-    injected_batch_ids: Vec<String>,
+    pub block: Option<cpython::PyObject>,
+    pub remaining_batches: Vec<Batch>,
+    pub last_batch: Option<Batch>,
+    pub injected_batch_ids: Vec<String>,
 }
 
 pub struct CandidateBlock {
