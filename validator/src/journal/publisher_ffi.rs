@@ -118,10 +118,10 @@ pub extern "C" fn block_publisher_new(
         .get(py, "BlockHeader")
         .expect("Unable to import BlockHeader from 'sawtooth_validator.protobuf.block_pb2'");
 
-    let block_builder_class = py.import("sawtooth_validator.journal.block_wrapper")
-        .expect("Unable to import 'sawtooth_validator.journal.block_wrapper'")
-        .get(py, "BlockWrapper")
-        .expect("Unable to import BlockBuilder from 'sawtooth_validator.journal.block_wrapper'");
+    let block_builder_class = py.import("sawtooth_validator.journal.block_builder")
+        .expect("Unable to import 'sawtooth_validator.journal.block_builder'")
+        .get(py, "BlockBuilder")
+        .expect("Unable to import BlockBuilder from 'sawtooth_validator.journal.block_builder'");
 
     let settings_view_class = py.import("sawtooth_validator.state.settings_view")
         .expect("Unable to import 'sawtooth_validator.state.settings_view'")
