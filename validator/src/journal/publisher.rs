@@ -173,8 +173,6 @@ impl BlockPublisher {
                             BatchQueueError::Timeout => {
                                 if unlocked.exit.get() {
                                     break;
-                                } else {
-                                    continue;
                                 }
                             },
                             err => panic!("Unhandled error: {:?}", err),
