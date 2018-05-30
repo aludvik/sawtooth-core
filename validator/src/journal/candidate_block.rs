@@ -52,7 +52,6 @@ pub struct CandidateBlock {
     batch_injectors: Vec<cpython::PyObject>,
     identity_signer: cpython::PyObject,
     settings_view: cpython::PyObject,
-    permission_verifier: cpython::PyObject,
 
     pending_batches: Vec<Batch>,
     pending_batch_ids: HashSet<String>,
@@ -72,7 +71,6 @@ impl CandidateBlock {
         batch_injectors: Vec<cpython::PyObject>,
         identity_signer: cpython::PyObject,
         settings_view: cpython::PyObject,
-        permission_verifier: cpython::PyObject,
     ) -> Self {
         CandidateBlock {
             block_store,
@@ -83,7 +81,6 @@ impl CandidateBlock {
             block_builder,
             batch_injectors,
             identity_signer,
-            permission_verifier,
             settings_view,
             pending_batches: vec![],
             pending_batch_ids: HashSet::new(),
