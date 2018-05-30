@@ -32,6 +32,7 @@ use execution::py_executor::PyExecutor;
 use journal::block_wrapper::BlockWrapper;
 use journal::candidate_block::{FinalizeBlockResult, CandidateBlock, CandidateBlockError};
 use journal::chain_commit_state::TransactionCommitCache;
+use journal::pylock::PyLock;
 
 const NUM_PUBLISH_COUNT_SAMPLES: usize = 5;
 const INITIAL_PUBLISH_COUNT: usize = 30;
@@ -74,7 +75,7 @@ pub struct BlockPublisher {
     block_sender: PyObject,
     batch_publisher: PyObject,
     chain_head: Option<BlockWrapper>,
-    chain_head_lock: PyObject,
+    chain_head_lock: PyLock,
     identity_signer: PyObject,
     data_dir: PyObject,
     config_dir: PyObject,
@@ -131,7 +132,7 @@ impl BlockPublisher {
             block_sender,
             batch_publisher,
             chain_head,
-            chain_head_lock,
+            chain_head_lock: PyLock::new(chain_head_lock),
             identity_signer,
             data_dir,
             config_dir,
@@ -198,10 +199,12 @@ impl BlockPublisher {
     }
 
     pub fn batch_sender(&self) -> IncomingBatchSender {
+        self.chain_head_lock.lock();
         self.batch_tx.clone()
     }
 
     pub fn pending_batch_info(&self) -> (i32, i32) {
+        self.chain_head_lock.lock();
         (self.pending_batches.len() as i32, self.pending_batches.limit() as i32)
     }
 
@@ -416,6 +419,7 @@ impl BlockPublisher {
         &mut self,
         batch: Batch
     ) {
+        self.chain_head_lock.lock();
         let gil = Python::acquire_gil();
         let py = gil.python();
 
@@ -441,6 +445,7 @@ impl BlockPublisher {
     }
 
     pub fn on_check_publish_block(&mut self, force: bool) {
+        self.chain_head_lock.lock();
         if !self.is_building_block() && self.can_build_block() {
             let chain_head = self.chain_head.clone().unwrap();
             match self.initialize_block(&chain_head) {
@@ -464,6 +469,7 @@ impl BlockPublisher {
         committed_batches: Vec<Batch>,
         uncommitted_batches: Vec<Batch>,
     ) {
+        self.chain_head_lock.lock();
         if let Some(chain_head) = chain_head {
             info!("Now building on top of block, {}", chain_head);
             self.cancel_block();
@@ -478,6 +484,7 @@ impl BlockPublisher {
     }
 
     pub fn has_batch(&self, batch_id: &str) -> bool {
+        self.chain_head_lock.lock();
         if self.pending_batches.contains(batch_id) {
             return true;
         }
