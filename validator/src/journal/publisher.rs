@@ -16,9 +16,8 @@
  */
 
 use batch::Batch;
-use block::Block;
 
-use cpython::{ObjectProtocol, ToPyObject, PyObject, Python, NoArgs, PyList, PyDict, PyString, PyClone};
+use cpython::{ObjectProtocol, PyObject, Python, NoArgs, PyList, PyDict, PyClone};
 use std::collections::{HashSet, VecDeque};
 use std::mem;
 use std::slice::Iter;
@@ -73,7 +72,7 @@ pub struct BlockPublisher {
     state_view_factory: PyObject,
     settings_cache: PyObject,
     block_sender: PyObject,
-    batch_sender: PyObject,
+    batch_publisher: PyObject,
     chain_head: Option<BlockWrapper>,
     chain_head_lock: PyObject,
     identity_signer: PyObject,
@@ -105,7 +104,7 @@ impl BlockPublisher {
         state_view_factory: PyObject,
         settings_cache: PyObject,
         block_sender: PyObject,
-        batch_sender: PyObject,
+        batch_publisher: PyObject,
         chain_head: Option<BlockWrapper>,
         chain_head_lock: PyObject,
         identity_signer: PyObject,
@@ -130,7 +129,7 @@ impl BlockPublisher {
             state_view_factory,
             settings_cache,
             block_sender,
-            batch_sender,
+            batch_publisher,
             chain_head,
             chain_head_lock,
             identity_signer,
@@ -360,7 +359,7 @@ impl BlockPublisher {
         self.block_sender.call_method(py, "send", (block,), Some(&kwargs))
             .expect("BlockSender has no method send");
 
-        self.on_chain_updated(Python::None(py), Vec::new(), Vec::new());
+        self.on_chain_updated(None, Vec::new(), Vec::new());
     }
 
     fn load_consensus(
@@ -373,7 +372,7 @@ impl BlockPublisher {
         let consensus_block_publisher = self.consensus_factory
             .call_method(py, "get_configured_consensus_module", (block.header_signature(), state_view), None)
             .expect("ConsensusFactory has no method get_configured_consensus_module")
-            .call_method(py, "BlockPublisher", (self.block_cache.clone_ref(py), self.state_view_factory.clone_ref(py), self.batch_sender.clone_ref(py), self.data_dir.clone_ref(py), self.config_dir.clone_ref(py), public_key.clone()), None);
+            .call_method(py, "BlockPublisher", (self.block_cache.clone_ref(py), self.state_view_factory.clone_ref(py), self.batch_publisher.clone_ref(py), self.data_dir.clone_ref(py), self.config_dir.clone_ref(py), public_key.clone()), None);
         consensus_block_publisher.unwrap()
     }
 
@@ -455,28 +454,20 @@ impl BlockPublisher {
 
     pub fn on_chain_updated(
         &mut self,
-        chain_head: PyObject,
+        chain_head: Option<BlockWrapper>,
         committed_batches: Vec<Batch>,
         uncommitted_batches: Vec<Batch>,
     ) {
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-        if let Ok(chain_head_is_some) = chain_head.is_true(py) {
-            if chain_head_is_some {
-                if let Ok(chain_head) = chain_head.extract::<BlockWrapper>(py) {
-                    info!("Now building on top of block, {}", chain_head);
-                    self.chain_head = Some(chain_head);
-                    self.cancel_block()
-                } else {
-                    warn!("BlockPublisher, on_chain_updated, Failed to extract Block from chain_head");
-                }
-            } else {
-                info!("Block publishing is suspended until new chain head arrives");
-                self.chain_head = None;
-                self.cancel_block()
-            }
+        if let Some(chain_head) = chain_head {
+            info!("Now building on top of block, {}", chain_head);
+            self.cancel_block();
+            self.pending_batches.update_limit(chain_head.block.batches.len());
+            self.pending_batches.rebuild(Some(committed_batches), Some(uncommitted_batches));
+            self.chain_head = Some(chain_head);
         } else {
-            warn!("BlockPublisher, chain_head lock poisoned");
+            info!("Block publishing is suspended until new chain head arrives");
+            self.cancel_block();
+            self.chain_head = None;
         }
     }
 

@@ -19,10 +19,11 @@ use std::os::raw::{c_char, c_void};
 use std::ffi::CStr;
 use std::sync::{Arc, Mutex};
 
-use cpython::{PyObject, PyList, Python};
+use cpython::{PyObject, PyList, Python, PyClone};
 
 use batch::Batch;
 use journal::publisher::{BlockPublisher, IncomingBatchSender};
+use journal::block_wrapper::BlockWrapper;
 
 #[repr(u32)]
 #[derive(Debug)]
@@ -101,6 +102,12 @@ pub extern "C" fn block_publisher_new(
     let check_publish_block_frequency: u64 = check_publish_block_frequency.extract(py).unwrap();
     let batch_observers: Vec<PyObject> = batch_observers.extract::<PyList>(py).unwrap().iter(py).collect();
 
+    let batch_publisher_mod = py.import("sawtooth_validator.journal.consensus.batch_publisher")
+        .expect("Unable to import 'sawtooth_validator.journal.consensus.batch_publisher'");
+    let batch_publisher = batch_publisher_mod
+        .call(py, "BatchPublisher", (identity_signer.clone_ref(py), batch_sender), None)
+        .expect("Unable to create BatchPublisher");
+
     let consensus_factory_mod = py.import(
         "sawtooth_validator.journal.consensus.consensus_factory",
     ).expect("Unable to import 'sawtooth_validator.journal.consensus.consensus_factory'");
@@ -134,7 +141,7 @@ pub extern "C" fn block_publisher_new(
         state_view_factory,
         settings_cache,
         block_sender,
-        batch_sender,
+        batch_publisher,
         chain_head,
         chain_head_lock,
         identity_signer,
@@ -247,9 +254,12 @@ pub extern "C" fn block_publisher_on_chain_updated(
             .map(|pyobj| pyobj.extract::<Batch>(py).unwrap())
             .collect()
     };
+    let chain_head: BlockWrapper = chain_head.extract(py)
+        .expect("Got a new chain head that wasn't a BlockWrapper");
+
     unsafe {
         (*(publisher as *mut Mutex<BlockPublisher>)).lock().unwrap().on_chain_updated(
-            chain_head,
+            Some(chain_head),
             committed_batches,
             uncommitted_batches,
         )
