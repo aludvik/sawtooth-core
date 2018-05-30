@@ -70,6 +70,12 @@ pub struct BlockPublisher {
     batch_tx: IncomingBatchSender,
     batch_rx: IncomingBatchReceiver,
 
+    consensus_factory: PyObject,
+    block_wrapper_class: PyObject,
+    block_header_class: PyObject,
+    block_builder_class: PyObject,
+    settings_view_class: PyObject,
+
     candidate_block: Arc<Mutex<Option<CandidateBlock>>>,
     publisher_chain_head: Arc<Mutex<Option<Block>>>,
     pending_batches: PendingBatchesPool,
@@ -93,6 +99,11 @@ impl BlockPublisher {
         check_publish_block_frequency: u64,
         batch_observers: Vec<PyObject>,
         batch_injector_factory: PyObject,
+        consensus_factory: PyObject,
+        block_wrapper_class: PyObject,
+        block_header_class: PyObject,
+        block_builder_class: PyObject,
+        settings_view_class: PyObject,
     ) -> Self {
         let (batch_tx, batch_rx) = make_batch_queue();
         let tep = Box::new(PyExecutor::new(transaction_executor).unwrap());
@@ -115,6 +126,11 @@ impl BlockPublisher {
             batch_injector_factory,
             batch_tx,
             batch_rx,
+            consensus_factory,
+            block_wrapper_class,
+            block_header_class,
+            block_builder_class,
+            settings_view_class,
             candidate_block: Arc::new(Mutex::new(None)),
             publisher_chain_head: Arc::new(Mutex::new(None)),
             pending_batches: PendingBatchesPool::new(
@@ -141,14 +157,8 @@ impl BlockPublisher {
         unimplemented!();
     }
 
-    fn get_state_view(&self, py: cpython::Python, previous_block: PyObject) -> PyObject {
-        let block_wrapper_mod = py.import("sawtooth_validator.journal.block_wrapper")
-            .expect("Unable to import sawtooth_validator.journal.block_wrapper");
-
-        let block_wrapper = block_wrapper_mod
-            .get(py, "BlockWrapper")
-            .expect("block_wrapper.py has no class BlockWrapper");
-        block_wrapper
+    fn get_state_view(&self, py: Python, previous_block: &BlockWrapper) -> PyObject {
+        self.block_wrapper_class
             .call_method(
                 py,
                 "state_view_for_block",
@@ -175,12 +185,8 @@ impl BlockPublisher {
         state_view: cpython::PyObject,
         public_key: String,
     ) -> cpython::PyObject {
-        let consensus_factory_mod = py.import(
-            "sawtooth_validator.journal.consensus.consensus_factory",
-        ).expect("Unable to import sawtooth_validator.journal.consensus.consensus_factory");
-        let consensus_factory = consensus_factory_mod.get(py, "ConsensusFactory").unwrap();
-        consensus_factory
-            .call_method(py, "get_configured_consensus_module", cpython::NoArgs, None)
+        self.consensus_factory
+            .call_method(py, "get_configured_consensus_module", NoArgs, None)
             .expect("ConsensusFactory has no method get_configured_consensus_module")
     }
 

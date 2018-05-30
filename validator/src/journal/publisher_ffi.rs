@@ -95,6 +95,33 @@ pub extern "C" fn block_publisher_new(
     let check_publish_block_frequency: u64 = check_publish_block_frequency.extract(py).unwrap();
     let batch_observers: Vec<PyObject> = batch_observers.extract::<PyList>(py).unwrap().iter(py).collect();
 
+    let consensus_factory_mod = py.import(
+        "sawtooth_validator.journal.consensus.consensus_factory",
+    ).expect("Unable to import 'sawtooth_validator.journal.consensus.consensus_factory'");
+    let consensus_factory = consensus_factory_mod.get(py, "ConsensusFactory").unwrap();
+
+    let block_wrapper_mod = py.import("sawtooth_validator.journal.block_wrapper")
+        .expect("Unable to import 'sawtooth_validator.journal.block_wrapper'");
+
+    let block_wrapper_class = block_wrapper_mod
+        .get(py, "BlockWrapper")
+        .expect("Unable to import BlockWrapper from 'sawtooth_validator.journal.block_wrapper'");
+
+    let block_header_class = py.import("sawtooth_validator.protobuf.block_pb2")
+        .expect("Unable to import 'sawtooth_validator.protobuf.block_pb2'")
+        .get(py, "BlockHeader")
+        .expect("Unable to import BlockHeader from 'sawtooth_validator.protobuf.block_pb2'");
+
+    let block_builder_class = py.import("sawtooth_validator.journal.block_wrapper")
+        .expect("Unable to import 'sawtooth_validator.journal.block_wrapper'")
+        .get(py, "BlockWrapper")
+        .expect("Unable to import BlockBuilder from 'sawtooth_validator.journal.block_wrapper'");
+
+    let settings_view_class = py.import("sawtooth_validator.state.settings_view")
+        .expect("Unable to import 'sawtooth_validator.state.settings_view'")
+        .get(py, "SettingsView")
+        .expect("Unable to import SettingsView from 'sawtooth_validator.state.settings_view'");
+
     let publisher = BlockPublisher::new(
         transaction_executor,
         block_cache,
@@ -108,9 +135,14 @@ pub extern "C" fn block_publisher_new(
         data_dir,
         config_dir,
         permission_verifier,
-        check_publish_block_frequency, // Extract int
-        batch_observers, // Extract PyList
-        batch_injector_factory);
+        check_publish_block_frequency,
+        batch_observers,
+        batch_injector_factory,
+        consensus_factory,
+        block_wrapper_class,
+        block_header_class,
+        block_builder_class,
+        settings_view_class);
 
     unsafe {
         *block_publisher_ptr = Box::into_raw(Box::new(publisher)) as *const c_void;
