@@ -24,12 +24,15 @@ use std::mem;
 use std::slice::Iter;
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, SendError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::Duration;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
+use std::time::{Instant, Duration};
 
 use execution::execution_platform::ExecutionPlatform;
 use execution::py_executor::PyExecutor;
-use journal::candidate_block::CandidateBlock;
+use journal::block_wrapper::BlockWrapper;
+use journal::candidate_block::{FinalizeBlockResult, CandidateBlock, CandidateBlockError};
+use journal::chain_commit_state::TransactionCommitCache;
 
 const NUM_PUBLISH_COUNT_SAMPLES: usize = 5;
 const INITIAL_PUBLISH_COUNT: usize = 30;
@@ -47,6 +50,21 @@ impl PublisherLoggingStates {
             consensus_ready: true,
         }
     }
+}
+
+pub enum InitializeBlockError {
+    ConsensusNotReady,
+    InvalidState,
+}
+
+pub enum FinalizeBlockError {
+    ConsensusNotReady,
+    NoPendingBatchesRemaining,
+    InvalidState,
+}
+
+pub enum StartError {
+    Disconnected,
 }
 
 pub struct BlockPublisher {
@@ -77,6 +95,7 @@ pub struct BlockPublisher {
     candidate_block: Option<CandidateBlock>,
     pending_batches: PendingBatchesPool,
     publisher_logging_states: PublisherLoggingStates,
+    pub exit: Exit,
 }
 
 impl BlockPublisher {
@@ -134,15 +153,49 @@ impl BlockPublisher {
                 INITIAL_PUBLISH_COUNT,
             ),
             publisher_logging_states: PublisherLoggingStates::new(),
-        }
+            exit: Exit::new(),
+        }))
     }
 
-    pub fn start(&self) {
-        unimplemented!()
+    pub fn start(publisher: Arc<Mutex<Self>>) {
+        let builder = thread::Builder::new().name("PublisherThread".into());
+        builder.spawn(move || {
+            let mut now = Instant::now();
+            let check_period = {
+                Duration::from_millis(publisher.lock().unwrap().check_publish_block_frequency)
+            };
+            loop {
+                debug!("loopy");
+                { // Receive and process a batch
+                    let mut unlocked = publisher.lock().unwrap();
+                    match unlocked.batch_rx.get(Duration::from_secs(1)) {
+                        Err(err) => match err {
+                            BatchQueueError::Timeout => {
+                                if unlocked.exit.get() {
+                                    break;
+                                } else {
+                                    continue;
+                                }
+                            },
+                            err => panic!("Unhandled error: {:?}", err),
+                        },
+                        Ok(batch) => unlocked.on_batch_received(batch),
+                    }
+                }
+                if now.elapsed() >= check_period {
+                    let mut unlocked = publisher.lock().unwrap();
+                    unlocked.on_check_publish_block(false);
+                    now = Instant::now();
+                    if unlocked.exit.get() {
+                        break
+                    }
+                }
+            }
+        }).unwrap();
     }
 
     pub fn stop(&self) {
-        unimplemented!();
+        self.exit.set();
     }
 
     pub fn batch_sender(&self) -> IncomingBatchSender {
@@ -174,10 +227,145 @@ impl BlockPublisher {
             .collect()
     }
 
+    fn initialize_block(&mut self, previous_block: &BlockWrapper) -> Result<(), InitializeBlockError> {
+        if self.candidate_block.is_some() { return Err(InitializeBlockError::InvalidState); }
+
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+
+        let kwargs = PyDict::new(py);
+        kwargs.set_item(py, "default_value", 0).unwrap();
+        let max_batches = self.settings_cache
+            .call_method(
+                py,
+                "get_setting",
+                (
+                    "sawtooth_publisher.max_batches_per_block",
+                    previous_block.block.state_root_hash.clone(),
+                ),
+                Some(&kwargs),
+            )
+            .expect("settings_cache has no method get_setting")
+            .extract::<usize>(py)
+            .unwrap();
+
+        let state_view = self.get_state_view(py, previous_block);
+        let public_key = self.get_public_key(py);
+        let consensus = self.load_consensus(
+            py,
+            previous_block,
+            state_view.clone_ref(py),
+            public_key.clone());
+        let batch_injectors = self.load_injectors(py, &previous_block.block.header_signature);
+
+        let kwargs = PyDict::new(py);
+        kwargs.set_item(py, "block_num", previous_block.block.block_num + 1).unwrap();
+        kwargs.set_item(py, "previous_block_id", &previous_block.block.header_signature).unwrap();
+        kwargs.set_item(py, "signer_public_key", &public_key).unwrap();
+        let block_header = self.block_header_class
+            .call(py, NoArgs, Some(&kwargs))
+            .expect("BlockHeader could not be constructed");
+
+        let block_builder = self.block_builder_class
+            .call(py, (block_header,), None)
+            .expect("BlockBuilder could not be constructed");
+
+        let consensus_check: bool = consensus
+            .call_method(
+                py,
+                "initialize_block",
+                (block_builder.getattr(py, "block_header").unwrap(),),
+                None)
+            .expect("Call to consensus.initialize_block failed")
+            .extract(py)
+            .unwrap();
+
+        if !consensus_check {
+            return Err(InitializeBlockError::ConsensusNotReady);
+        }
+
+        let scheduler = self.transaction_executor
+            .create_scheduler(&previous_block.block.state_root_hash)
+            .expect("Failed to create new scheduler");
+
+        let block_store = self.block_cache
+            .getattr(py, "_block_store")
+            .expect("BlockCache has not field _block_store");
+
+        let committed_txn_cache = TransactionCommitCache::new(block_store.clone_ref(py));
+
+        let settings_view = self.settings_view_class
+            .call(py, (state_view,), None)
+            .expect("SettingsView could not be constructed");
+
+        let mut candidate_block = CandidateBlock::new(
+            block_store,
+            consensus,
+            scheduler,
+            committed_txn_cache,
+            block_builder,
+            max_batches,
+            batch_injectors,
+            self.identity_signer.clone_ref(py),
+            settings_view,
+        );
+
+        for batch in self.pending_batches.iter() {
+            if candidate_block.can_add_batch() {
+                candidate_block.add_batch(batch.clone());
+            } else {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    fn finalize_block(&mut self, force: bool) -> Result<FinalizeBlockResult, FinalizeBlockError> {
+        let mut option_result = None;
+        if let Some(ref mut candidate_block) = &mut self.candidate_block {
+            option_result = Some(candidate_block.finalize(force));
+        }
+
+        self.candidate_block = None;
+
+        if let Some(result) = option_result {
+            match result {
+                Ok(finalize_result) => {
+                    self.pending_batches.update(
+                        finalize_result.remaining_batches.clone(),
+                        finalize_result.last_batch.clone());
+                    Ok(finalize_result)
+                },
+                Err(err) => Err(match err {
+                    CandidateBlockError::ConsensusNotReady =>
+                        FinalizeBlockError::ConsensusNotReady,
+                    CandidateBlockError::NoPendingBatchesRemaining =>
+                        FinalizeBlockError::NoPendingBatchesRemaining,
+                }),
+            }
+        } else {
+            Err(FinalizeBlockError::InvalidState)
+        }
+    }
+
+    fn publish_block(&mut self, block: PyObject, injected_batches: Vec<String>) {
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        let block: BlockWrapper = block.extract(py)
+            .expect("Got block to publish that wasn't a BlockWrapper");
+
+        let kwargs = PyDict::new(py);
+        kwargs.set_item(py, "keep_batches", injected_batches).unwrap();
+        self.block_sender.call_method(py, "send", (block,), Some(&kwargs))
+            .expect("BlockSender has no method send");
+
+        self.on_chain_updated(Python::None(py), Vec::new(), Vec::new());
+    }
+
     fn load_consensus(
         &self,
         py: Python,
-        block: Block,
+        block: &BlockWrapper,
         state_view: PyObject,
         public_key: String,
     ) -> PyObject {
@@ -219,6 +407,46 @@ impl BlockPublisher {
         mem::swap(&mut self.candidate_block, &mut candidate_block);
         if let Some(mut candidate_block) = candidate_block {
             candidate_block.cancel();
+        }
+    }
+
+    pub fn on_batch_received(
+        &mut self,
+        batch: Batch
+    ) {
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        let permission_check = self.permission_verifier
+            .call_method(py, "is_batch_signer_authorized", (batch.clone(),), None)
+            .expect("PermissionVerifier has no method is_batch_signer_authorized")
+            .extract(py)
+            .expect("PermissionVerifier.is_batch_signer_authorized did not return bool");
+
+        if permission_check {
+            self.pending_batches.append(batch.clone());
+            if let Some(ref mut candidate_block) = self.candidate_block {
+                if candidate_block.can_add_batch() {
+                    candidate_block.add_batch(batch);
+                }
+            }
+        }
+    }
+
+    pub fn on_check_publish_block(&mut self, force: bool) {
+        if !self.is_building_block() && self.can_build_block() {
+            let chain_head = self.chain_head.clone().unwrap();
+            match self.initialize_block(&chain_head) {
+                Ok(_) => self.log_consensus_state(true),
+                Err(_) => self.log_consensus_state(false),
+            }
+        }
+
+        if self.is_building_block() {
+            if let Ok(result) = self.finalize_block(force) {
+                if result.block.is_some() {
+                    self.publish_block(result.block.unwrap(), result.injected_batch_ids);
+                }
+            }
         }
     }
 
