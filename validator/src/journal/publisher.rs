@@ -52,7 +52,7 @@ impl PublisherLoggingStates {
 }
 
 pub struct BlockPublisher {
-    tep: Box<ExecutionPlatform>,
+    transaction_executor: Box<ExecutionPlatform>,
     block_cache: PyObject,
     state_view_factory: PyObject,
     settings_cache: PyObject,
@@ -109,7 +109,7 @@ impl BlockPublisher {
         let tep = Box::new(PyExecutor::new(transaction_executor).unwrap());
 
         BlockPublisher {
-            tep,
+            transaction_executor: tep,
             block_cache,
             state_view_factory,
             settings_cache,
