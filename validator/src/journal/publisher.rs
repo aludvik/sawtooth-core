@@ -202,8 +202,8 @@ impl BlockPublisher {
         self.batch_tx.clone()
     }
 
-    pub fn pending_batch_info(&self) -> (usize, usize) {
-        (self.pending_batches.len(), self.pending_batches.limit())
+    pub fn pending_batch_info(&self) -> (i32, i32) {
+        (self.pending_batches.len() as i32, self.pending_batches.limit() as i32)
     }
 
     fn get_state_view(&self, py: Python, previous_block: &BlockWrapper) -> PyObject {

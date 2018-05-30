@@ -188,8 +188,8 @@ pub extern "C" fn block_publisher_stop(publisher: *mut c_void) -> ErrorCode {
 #[no_mangle]
 pub extern "C" fn block_publisher_pending_batch_info(
     publisher: *mut c_void,
-    length: *mut usize,
-    limit: *mut usize
+    length: *mut i32,
+    limit: *mut i32
 ) -> ErrorCode {
     check_null!(publisher);
      unsafe {
