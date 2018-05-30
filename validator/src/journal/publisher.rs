@@ -418,6 +418,12 @@ impl BlockPublisher {
     ) {
         let gil = Python::acquire_gil();
         let py = gil.python();
+
+        for observer in &self.batch_observers {
+            observer
+                .call_method(py, "notify_batch_pending", (batch.clone(),), None)
+                .expect("BatchObserver has no method notify_batch_pending");
+        }
         let permission_check = self.permission_verifier
             .call_method(py, "is_batch_signer_authorized", (batch.clone(),), None)
             .expect("PermissionVerifier has no method is_batch_signer_authorized")
