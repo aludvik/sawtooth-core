@@ -239,12 +239,30 @@ impl BlockPublisher {
     }
 
     pub fn on_chain_updated(
-        &self,
+        &mut self,
         chain_head: PyObject,
         committed_batches: Vec<Batch>,
         uncommitted_batches: Vec<Batch>,
     ) {
-        unimplemented!()
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        if let Ok(chain_head_is_some) = chain_head.is_true(py) {
+            if chain_head_is_some {
+                if let Ok(chain_head) = chain_head.extract::<BlockWrapper>(py) {
+                    info!("Now building on top of block, {}", chain_head);
+                    self.chain_head = Some(chain_head);
+                    self.cancel_block()
+                } else {
+                    warn!("BlockPublisher, on_chain_updated, Failed to extract Block from chain_head");
+                }
+            } else {
+                info!("Block publishing is suspended until new chain head arrives");
+                self.chain_head = None;
+                self.cancel_block()
+            }
+        } else {
+            warn!("BlockPublisher, chain_head lock poisoned");
+        }
     }
 
     pub fn has_batch(&self, batch_id: &str) -> bool {
