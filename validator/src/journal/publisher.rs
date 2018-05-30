@@ -314,9 +314,10 @@ impl IncomingBatchSender {
     }
 }
 
+#[derive(Debug)]
 pub enum BatchQueueError {
     SenderError(SendError<Batch>),
-    TimeoutError(RecvTimeoutError),
+    Timeout,
     MutexPoisonError(String),
 }
 
@@ -327,8 +328,8 @@ impl From<SendError<Batch>> for BatchQueueError {
 }
 
 impl From<RecvTimeoutError> for BatchQueueError {
-    fn from(e: RecvTimeoutError) -> Self {
-        BatchQueueError::TimeoutError(e)
+    fn from(_: RecvTimeoutError) -> Self {
+        BatchQueueError::Timeout
     }
 }
 
