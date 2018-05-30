@@ -72,7 +72,7 @@ pub struct BlockPublisher {
     state_view_factory: PyObject,
     settings_cache: PyObject,
     block_sender: PyObject,
-    batch_sender: PyObject,
+    batch_publisher: PyObject,
     chain_head: Option<BlockWrapper>,
     chain_head_lock: PyObject,
     identity_signer: PyObject,
@@ -104,7 +104,7 @@ impl BlockPublisher {
         state_view_factory: PyObject,
         settings_cache: PyObject,
         block_sender: PyObject,
-        batch_sender: PyObject,
+        batch_publisher: PyObject,
         chain_head: Option<BlockWrapper>,
         chain_head_lock: PyObject,
         identity_signer: PyObject,
@@ -129,7 +129,7 @@ impl BlockPublisher {
             state_view_factory,
             settings_cache,
             block_sender,
-            batch_sender,
+            batch_publisher,
             chain_head,
             chain_head_lock,
             identity_signer,
@@ -372,7 +372,7 @@ impl BlockPublisher {
         let consensus_block_publisher = self.consensus_factory
             .call_method(py, "get_configured_consensus_module", (block.header_signature(), state_view), None)
             .expect("ConsensusFactory has no method get_configured_consensus_module")
-            .call_method(py, "BlockPublisher", (self.block_cache.clone_ref(py), self.state_view_factory.clone_ref(py), self.batch_sender.clone_ref(py), self.data_dir.clone_ref(py), self.config_dir.clone_ref(py), public_key.clone()), None);
+            .call_method(py, "BlockPublisher", (self.block_cache.clone_ref(py), self.state_view_factory.clone_ref(py), self.batch_publisher.clone_ref(py), self.data_dir.clone_ref(py), self.config_dir.clone_ref(py), public_key.clone()), None);
         consensus_block_publisher.unwrap()
     }
 
