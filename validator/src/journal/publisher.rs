@@ -154,7 +154,7 @@ impl BlockPublisher {
     }
 
     pub fn pending_batch_info(&self) -> (usize, usize) {
-        unimplemented!();
+        (self.pending_batches.len(), self.pending_batches.limit())
     }
 
     fn get_state_view(&self, py: Python, previous_block: &BlockWrapper) -> PyObject {
