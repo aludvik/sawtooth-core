@@ -18,19 +18,21 @@
 use batch::Batch;
 use block::Block;
 
-use cpython;
-use cpython::ObjectProtocol;
-use cpython::PyObject;
+use cpython::{ObjectProtocol, ToPyObject, PyObject, Python, NoArgs, PyList, PyDict, PyString, PyClone};
 use std::collections::{HashSet, VecDeque};
 use std::mem;
 use std::slice::Iter;
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, SendError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
+use std::time::{Instant, Duration};
 
 use execution::execution_platform::ExecutionPlatform;
 use execution::py_executor::PyExecutor;
-use journal::candidate_block::CandidateBlock;
+use journal::block_wrapper::BlockWrapper;
+use journal::candidate_block::{FinalizeBlockResult, CandidateBlock, CandidateBlockError};
+use journal::chain_commit_state::TransactionCommitCache;
 
 const NUM_PUBLISH_COUNT_SAMPLES: usize = 5;
 const INITIAL_PUBLISH_COUNT: usize = 30;
@@ -50,29 +52,50 @@ impl PublisherLoggingStates {
     }
 }
 
+pub enum InitializeBlockError {
+    ConsensusNotReady,
+    InvalidState,
+}
+
+pub enum FinalizeBlockError {
+    ConsensusNotReady,
+    NoPendingBatchesRemaining,
+    InvalidState,
+}
+
+pub enum StartError {
+    Disconnected,
+}
+
 pub struct BlockPublisher {
-    tep: Box<ExecutionPlatform>,
+    transaction_executor: Box<ExecutionPlatform>,
     block_cache: PyObject,
     state_view_factory: PyObject,
     settings_cache: PyObject,
     block_sender: PyObject,
     batch_sender: PyObject,
-    chain_head: PyObject,
+    chain_head: Option<BlockWrapper>,
     chain_head_lock: PyObject,
     identity_signer: PyObject,
     data_dir: PyObject,
     config_dir: PyObject,
     permission_verifier: PyObject,
-    check_publish_block_frequency: u64,
+    pub check_publish_block_frequency: u64,
     batch_observers: Vec<PyObject>,
     batch_injector_factory: PyObject,
     batch_tx: IncomingBatchSender,
-    batch_rx: IncomingBatchReceiver,
+    pub batch_rx: IncomingBatchReceiver,
 
-    candidate_block: Arc<Mutex<Option<CandidateBlock>>>,
-    publisher_chain_head: Arc<Mutex<Option<Block>>>,
+    consensus_factory: PyObject,
+    block_wrapper_class: PyObject,
+    block_header_class: PyObject,
+    block_builder_class: PyObject,
+    settings_view_class: PyObject,
+
+    candidate_block: Option<CandidateBlock>,
     pending_batches: PendingBatchesPool,
     publisher_logging_states: PublisherLoggingStates,
+    pub exit: Exit,
 }
 
 impl BlockPublisher {
@@ -83,7 +106,7 @@ impl BlockPublisher {
         settings_cache: PyObject,
         block_sender: PyObject,
         batch_sender: PyObject,
-        chain_head: PyObject,
+        chain_head: Option<BlockWrapper>,
         chain_head_lock: PyObject,
         identity_signer: PyObject,
         data_dir: PyObject,
@@ -92,12 +115,17 @@ impl BlockPublisher {
         check_publish_block_frequency: u64,
         batch_observers: Vec<PyObject>,
         batch_injector_factory: PyObject,
-    ) -> Self {
+        consensus_factory: PyObject,
+        block_wrapper_class: PyObject,
+        block_header_class: PyObject,
+        block_builder_class: PyObject,
+        settings_view_class: PyObject,
+    ) -> Arc<Mutex<Self>> {
         let (batch_tx, batch_rx) = make_batch_queue();
         let tep = Box::new(PyExecutor::new(transaction_executor).unwrap());
 
-        BlockPublisher {
-            tep,
+        Arc::new(Mutex::new(BlockPublisher {
+            transaction_executor: tep,
             block_cache,
             state_view_factory,
             settings_cache,
@@ -114,22 +142,60 @@ impl BlockPublisher {
             batch_injector_factory,
             batch_tx,
             batch_rx,
-            candidate_block: Arc::new(Mutex::new(None)),
-            publisher_chain_head: Arc::new(Mutex::new(None)),
+            consensus_factory,
+            block_wrapper_class,
+            block_header_class,
+            block_builder_class,
+            settings_view_class,
+            candidate_block: None,
             pending_batches: PendingBatchesPool::new(
                 NUM_PUBLISH_COUNT_SAMPLES,
                 INITIAL_PUBLISH_COUNT,
             ),
             publisher_logging_states: PublisherLoggingStates::new(),
-        }
+            exit: Exit::new(),
+        }))
     }
 
-    pub fn start(&self) {
-        unimplemented!()
+    pub fn start(publisher: Arc<Mutex<Self>>) {
+        let builder = thread::Builder::new().name("PublisherThread".into());
+        builder.spawn(move || {
+            let mut now = Instant::now();
+            let check_period = {
+                Duration::from_millis(publisher.lock().unwrap().check_publish_block_frequency)
+            };
+            loop {
+                debug!("loopy");
+                { // Receive and process a batch
+                    let mut unlocked = publisher.lock().unwrap();
+                    match unlocked.batch_rx.get(Duration::from_secs(1)) {
+                        Err(err) => match err {
+                            BatchQueueError::Timeout => {
+                                if unlocked.exit.get() {
+                                    break;
+                                } else {
+                                    continue;
+                                }
+                            },
+                            err => panic!("Unhandled error: {:?}", err),
+                        },
+                        Ok(batch) => unlocked.on_batch_received(batch),
+                    }
+                }
+                if now.elapsed() >= check_period {
+                    let mut unlocked = publisher.lock().unwrap();
+                    unlocked.on_check_publish_block(false);
+                    now = Instant::now();
+                    if unlocked.exit.get() {
+                        break
+                    }
+                }
+            }
+        }).unwrap();
     }
 
     pub fn stop(&self) {
-        unimplemented!();
+        self.exit.set();
     }
 
     pub fn batch_sender(&self) -> IncomingBatchSender {
@@ -137,17 +203,11 @@ impl BlockPublisher {
     }
 
     pub fn pending_batch_info(&self) -> (usize, usize) {
-        unimplemented!();
+        (self.pending_batches.len(), self.pending_batches.limit())
     }
 
-    fn get_state_view(&self, py: cpython::Python, previous_block: PyObject) -> PyObject {
-        let block_wrapper_mod = py.import("sawtooth_validator.journal.block_wrapper")
-            .expect("Unable to import sawtooth_validator.journal.block_wrapper");
-
-        let block_wrapper = block_wrapper_mod
-            .get(py, "BlockWrapper")
-            .expect("block_wrapper.py has no class BlockWrapper");
-        block_wrapper
+    fn get_state_view(&self, py: Python, previous_block: &BlockWrapper) -> PyObject {
+        self.block_wrapper_class
             .call_method(
                 py,
                 "state_view_for_block",
@@ -157,58 +217,179 @@ impl BlockPublisher {
             .expect("BlockWrapper, unable to call state_view_for_block")
     }
 
-    fn load_injectors(&self, py: cpython::Python, block_id: &str) -> Vec<PyObject> {
+    fn load_injectors(&self, py: Python, block_id: &str) -> Vec<PyObject> {
         self.batch_injector_factory
             .call_method(py, "create_injectors", (block_id,), None)
             .expect("BatchInjectorFactory has no method 'create_injectors'")
-            .extract::<cpython::PyList>(py)
+            .extract::<PyList>(py)
             .unwrap()
             .iter(py)
             .collect()
     }
 
+    fn initialize_block(&mut self, previous_block: &BlockWrapper) -> Result<(), InitializeBlockError> {
+        if self.candidate_block.is_some() { return Err(InitializeBlockError::InvalidState); }
+
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+
+        let kwargs = PyDict::new(py);
+        kwargs.set_item(py, "default_value", 0).unwrap();
+        let max_batches = self.settings_cache
+            .call_method(
+                py,
+                "get_setting",
+                (
+                    "sawtooth_publisher.max_batches_per_block",
+                    previous_block.block.state_root_hash.clone(),
+                ),
+                Some(&kwargs),
+            )
+            .expect("settings_cache has no method get_setting")
+            .extract::<usize>(py)
+            .unwrap();
+
+        let state_view = self.get_state_view(py, previous_block);
+        let public_key = self.get_public_key(py);
+        let consensus = self.load_consensus(
+            py,
+            previous_block,
+            state_view.clone_ref(py),
+            public_key.clone());
+        let batch_injectors = self.load_injectors(py, &previous_block.block.header_signature);
+
+        let kwargs = PyDict::new(py);
+        kwargs.set_item(py, "block_num", previous_block.block.block_num + 1).unwrap();
+        kwargs.set_item(py, "previous_block_id", &previous_block.block.header_signature).unwrap();
+        kwargs.set_item(py, "signer_public_key", &public_key).unwrap();
+        let block_header = self.block_header_class
+            .call(py, NoArgs, Some(&kwargs))
+            .expect("BlockHeader could not be constructed");
+
+        let block_builder = self.block_builder_class
+            .call(py, (block_header,), None)
+            .expect("BlockBuilder could not be constructed");
+
+        let consensus_check: bool = consensus
+            .call_method(
+                py,
+                "initialize_block",
+                (block_builder.getattr(py, "block_header").unwrap(),),
+                None)
+            .expect("Call to consensus.initialize_block failed")
+            .extract(py)
+            .unwrap();
+
+        if !consensus_check {
+            return Err(InitializeBlockError::ConsensusNotReady);
+        }
+
+        let scheduler = self.transaction_executor
+            .create_scheduler(&previous_block.block.state_root_hash)
+            .expect("Failed to create new scheduler");
+
+        let block_store = self.block_cache
+            .getattr(py, "_block_store")
+            .expect("BlockCache has not field _block_store");
+
+        let committed_txn_cache = TransactionCommitCache::new(block_store.clone_ref(py));
+
+        let settings_view = self.settings_view_class
+            .call(py, (state_view,), None)
+            .expect("SettingsView could not be constructed");
+
+        let mut candidate_block = CandidateBlock::new(
+            block_store,
+            consensus,
+            scheduler,
+            committed_txn_cache,
+            block_builder,
+            max_batches,
+            batch_injectors,
+            self.identity_signer.clone_ref(py),
+            settings_view,
+        );
+
+        for batch in self.pending_batches.iter() {
+            if candidate_block.can_add_batch() {
+                candidate_block.add_batch(batch.clone());
+            } else {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    fn finalize_block(&mut self, force: bool) -> Result<FinalizeBlockResult, FinalizeBlockError> {
+        let mut option_result = None;
+        if let Some(ref mut candidate_block) = &mut self.candidate_block {
+            option_result = Some(candidate_block.finalize(force));
+        }
+
+        self.candidate_block = None;
+
+        if let Some(result) = option_result {
+            match result {
+                Ok(finalize_result) => {
+                    self.pending_batches.update(
+                        finalize_result.remaining_batches.clone(),
+                        finalize_result.last_batch.clone());
+                    Ok(finalize_result)
+                },
+                Err(err) => Err(match err {
+                    CandidateBlockError::ConsensusNotReady =>
+                        FinalizeBlockError::ConsensusNotReady,
+                    CandidateBlockError::NoPendingBatchesRemaining =>
+                        FinalizeBlockError::NoPendingBatchesRemaining,
+                }),
+            }
+        } else {
+            Err(FinalizeBlockError::InvalidState)
+        }
+    }
+
+    fn publish_block(&mut self, block: PyObject, injected_batches: Vec<String>) {
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        let block: BlockWrapper = block.extract(py)
+            .expect("Got block to publish that wasn't a BlockWrapper");
+
+        let kwargs = PyDict::new(py);
+        kwargs.set_item(py, "keep_batches", injected_batches).unwrap();
+        self.block_sender.call_method(py, "send", (block,), Some(&kwargs))
+            .expect("BlockSender has no method send");
+
+        self.on_chain_updated(Python::None(py), Vec::new(), Vec::new());
+    }
+
     fn load_consensus(
         &self,
-        py: cpython::Python,
-        block: Block,
-        state_view: cpython::PyObject,
+        py: Python,
+        block: &BlockWrapper,
+        state_view: PyObject,
         public_key: String,
-    ) -> cpython::PyObject {
-        let consensus_factory_mod = py.import(
-            "sawtooth_validator.journal.consensus.consensus_factory",
-        ).expect("Unable to import sawtooth_validator.journal.consensus.consensus_factory");
-        let consensus_factory = consensus_factory_mod.get(py, "ConsensusFactory").unwrap();
-        consensus_factory
-            .call_method(py, "get_configured_consensus_module", cpython::NoArgs, None)
+    ) -> PyObject {
+        self.consensus_factory
+            .call_method(py, "get_configured_consensus_module", NoArgs, None)
             .expect("ConsensusFactory has no method get_configured_consensus_module")
     }
 
-    fn get_public_key(&self, py: cpython::Python) -> String {
+    fn get_public_key(&self, py: Python) -> String {
         self.identity_signer
-            .call_method(py, "get_public_key", cpython::NoArgs, None)
+            .call_method(py, "get_public_key", NoArgs, None)
             .expect("IdentitySigner has no method get_public_key")
-            .call_method(py, "as_hex", cpython::NoArgs, None)
+            .call_method(py, "as_hex", NoArgs, None)
             .expect("PublicKey object as no method as_hex")
             .extract::<String>(py)
             .unwrap()
     }
 
     fn is_building_block(&self) -> bool {
-        if let Ok(candidate_block) = self.candidate_block.lock() {
-            (*candidate_block).is_some()
-        } else {
-            warn!("BlockPublisher Candidate block lock is poisoned");
-            false
-        }
+        self.candidate_block.is_some()
     }
 
     fn can_build_block(&self) -> bool {
-        if let Ok(chain_head) = self.publisher_chain_head.lock() {
-            (*chain_head).is_some() && self.pending_batches.len() > 0
-        } else {
-            warn!("BlockPublisher chain_head lock is poisoned!");
-            false
-        }
+        self.chain_head.is_some() && self.pending_batches.len() > 0
     }
 
     fn log_consensus_state(&mut self, ready: bool) {
@@ -221,38 +402,89 @@ impl BlockPublisher {
         }
     }
 
-    fn cancel_block(&self) {
-        if let Ok(mut candidate_block) = self.candidate_block.lock() {
-            if let Some(ref mut candidate_block) = *candidate_block {
-                candidate_block.cancel();
+    fn cancel_block(&mut self) {
+        let mut candidate_block = None;
+        mem::swap(&mut self.candidate_block, &mut candidate_block);
+        if let Some(mut candidate_block) = candidate_block {
+            candidate_block.cancel();
+        }
+    }
+
+    pub fn on_batch_received(
+        &mut self,
+        batch: Batch
+    ) {
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        let permission_check = self.permission_verifier
+            .call_method(py, "is_batch_signer_authorized", (batch.clone(),), None)
+            .expect("PermissionVerifier has no method is_batch_signer_authorized")
+            .extract(py)
+            .expect("PermissionVerifier.is_batch_signer_authorized did not return bool");
+
+        if permission_check {
+            self.pending_batches.append(batch.clone());
+            if let Some(ref mut candidate_block) = self.candidate_block {
+                if candidate_block.can_add_batch() {
+                    candidate_block.add_batch(batch);
+                }
             }
-        } else {
-            warn!("Block Publisher, candidate block lock is poisoned");
+        }
+    }
+
+    pub fn on_check_publish_block(&mut self, force: bool) {
+        if !self.is_building_block() && self.can_build_block() {
+            let chain_head = self.chain_head.clone().unwrap();
+            match self.initialize_block(&chain_head) {
+                Ok(_) => self.log_consensus_state(true),
+                Err(_) => self.log_consensus_state(false),
+            }
+        }
+
+        if self.is_building_block() {
+            if let Ok(result) = self.finalize_block(force) {
+                if result.block.is_some() {
+                    self.publish_block(result.block.unwrap(), result.injected_batch_ids);
+                }
+            }
         }
     }
 
     pub fn on_chain_updated(
-        &self,
+        &mut self,
         chain_head: PyObject,
         committed_batches: Vec<Batch>,
         uncommitted_batches: Vec<Batch>,
     ) {
-        unimplemented!()
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        if let Ok(chain_head_is_some) = chain_head.is_true(py) {
+            if chain_head_is_some {
+                if let Ok(chain_head) = chain_head.extract::<BlockWrapper>(py) {
+                    info!("Now building on top of block, {}", chain_head);
+                    self.chain_head = Some(chain_head);
+                    self.cancel_block()
+                } else {
+                    warn!("BlockPublisher, on_chain_updated, Failed to extract Block from chain_head");
+                }
+            } else {
+                info!("Block publishing is suspended until new chain head arrives");
+                self.chain_head = None;
+                self.cancel_block()
+            }
+        } else {
+            warn!("BlockPublisher, chain_head lock poisoned");
+        }
     }
 
     pub fn has_batch(&self, batch_id: &str) -> bool {
-        if let Ok(_) = self.publisher_chain_head.lock() {
-            if self.pending_batches.contains(batch_id) {
-                return true;
-            }
-            self.batch_tx.has_batch(batch_id).unwrap_or_else(|_| {
-                warn!("In BlockPublisher.has_batch, batchsender.has_batch errored");
-                false
-            })
-        } else {
-            warn!("BlockPublisher, chain_head_lock is poisoned");
-            false
+        if self.pending_batches.contains(batch_id) {
+            return true;
         }
+        self.batch_tx.has_batch(batch_id).unwrap_or_else(|_| {
+            warn!("In BlockPublisher.has_batch, batchsender.has_batch errored");
+            false
+        })
     }
 }
 
@@ -314,9 +546,10 @@ impl IncomingBatchSender {
     }
 }
 
+#[derive(Debug)]
 pub enum BatchQueueError {
     SenderError(SendError<Batch>),
-    TimeoutError(RecvTimeoutError),
+    Timeout,
     MutexPoisonError(String),
 }
 
@@ -327,8 +560,8 @@ impl From<SendError<Batch>> for BatchQueueError {
 }
 
 impl From<RecvTimeoutError> for BatchQueueError {
-    fn from(e: RecvTimeoutError) -> Self {
-        BatchQueueError::TimeoutError(e)
+    fn from(_: RecvTimeoutError) -> Self {
+        BatchQueueError::Timeout
     }
 }
 
@@ -512,5 +745,27 @@ impl QueueLimit {
         // Limit the number of items to 2 times the publishing average.  This
         // allows the queue to grow geometrically, if the queue is drained.
         2 * self.avg.value()
+    }
+}
+
+/// Utility class for signaling that a background thread should shutdown
+#[derive(Default)]
+pub struct Exit {
+    flag: Mutex<AtomicBool>,
+}
+
+impl Exit {
+    pub fn new() -> Self {
+        Exit {
+            flag: Mutex::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub fn get(&self) -> bool {
+        self.flag.lock().unwrap().load(Ordering::Relaxed)
+    }
+
+    pub fn set(&self) {
+        self.flag.lock().unwrap().store(true, Ordering::Relaxed);
     }
 }

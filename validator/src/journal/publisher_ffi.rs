@@ -17,6 +17,7 @@
 use py_ffi;
 use std::os::raw::{c_char, c_void};
 use std::ffi::CStr;
+use std::sync::{Arc, Mutex};
 
 use cpython::{PyObject, PyList, Python};
 
@@ -92,8 +93,40 @@ pub extern "C" fn block_publisher_new(
     let batch_observers = unsafe { PyObject::from_borrowed_ptr(py, batch_observers_ptr) };
     let batch_injector_factory = unsafe { PyObject::from_borrowed_ptr(py, batch_injector_factory_ptr) };
 
+    let chain_head = if chain_head == Python::None(py) {
+        None
+    } else {
+        chain_head.extract(py).expect("Got chain head that wasn't a BlockWrapper")
+    };
     let check_publish_block_frequency: u64 = check_publish_block_frequency.extract(py).unwrap();
     let batch_observers: Vec<PyObject> = batch_observers.extract::<PyList>(py).unwrap().iter(py).collect();
+
+    let consensus_factory_mod = py.import(
+        "sawtooth_validator.journal.consensus.consensus_factory",
+    ).expect("Unable to import 'sawtooth_validator.journal.consensus.consensus_factory'");
+    let consensus_factory = consensus_factory_mod.get(py, "ConsensusFactory").unwrap();
+
+    let block_wrapper_mod = py.import("sawtooth_validator.journal.block_wrapper")
+        .expect("Unable to import 'sawtooth_validator.journal.block_wrapper'");
+
+    let block_wrapper_class = block_wrapper_mod
+        .get(py, "BlockWrapper")
+        .expect("Unable to import BlockWrapper from 'sawtooth_validator.journal.block_wrapper'");
+
+    let block_header_class = py.import("sawtooth_validator.protobuf.block_pb2")
+        .expect("Unable to import 'sawtooth_validator.protobuf.block_pb2'")
+        .get(py, "BlockHeader")
+        .expect("Unable to import BlockHeader from 'sawtooth_validator.protobuf.block_pb2'");
+
+    let block_builder_class = py.import("sawtooth_validator.journal.block_wrapper")
+        .expect("Unable to import 'sawtooth_validator.journal.block_wrapper'")
+        .get(py, "BlockWrapper")
+        .expect("Unable to import BlockBuilder from 'sawtooth_validator.journal.block_wrapper'");
+
+    let settings_view_class = py.import("sawtooth_validator.state.settings_view")
+        .expect("Unable to import 'sawtooth_validator.state.settings_view'")
+        .get(py, "SettingsView")
+        .expect("Unable to import SettingsView from 'sawtooth_validator.state.settings_view'");
 
     let publisher = BlockPublisher::new(
         transaction_executor,
@@ -108,12 +141,18 @@ pub extern "C" fn block_publisher_new(
         data_dir,
         config_dir,
         permission_verifier,
-        check_publish_block_frequency, // Extract int
-        batch_observers, // Extract PyList
-        batch_injector_factory);
+        check_publish_block_frequency,
+        batch_observers,
+        batch_injector_factory,
+        consensus_factory,
+        block_wrapper_class,
+        block_header_class,
+        block_builder_class,
+        settings_view_class);
 
     unsafe {
-        *block_publisher_ptr = Box::into_raw(Box::new(publisher)) as *const c_void;
+        let ptr: *const Mutex<BlockPublisher> = Arc::into_raw(publisher);
+        *block_publisher_ptr = ptr as *const c_void;
     }
 
     ErrorCode::Success
@@ -122,7 +161,7 @@ pub extern "C" fn block_publisher_new(
 #[no_mangle]
 pub extern "C" fn block_publisher_drop(publisher: *mut c_void) -> ErrorCode {
     check_null!(publisher);
-    unsafe { Box::from_raw(publisher as *mut BlockPublisher) };
+    unsafe { Arc::from_raw(publisher as *mut Mutex<BlockPublisher>) };
     ErrorCode::Success
 }
 
@@ -130,7 +169,9 @@ pub extern "C" fn block_publisher_drop(publisher: *mut c_void) -> ErrorCode {
 pub extern "C" fn block_publisher_start(publisher: *mut c_void) -> ErrorCode {
     check_null!(publisher);
     unsafe {
-        (*(publisher as *mut BlockPublisher)).start()
+        let publisher: Arc<Mutex<BlockPublisher>> = Arc::from_raw(publisher as *mut Mutex<BlockPublisher>);
+        BlockPublisher::start(Arc::clone(&publisher));
+        Arc::into_raw(publisher);
     }
     ErrorCode::Success
 }
@@ -139,7 +180,7 @@ pub extern "C" fn block_publisher_start(publisher: *mut c_void) -> ErrorCode {
 pub extern "C" fn block_publisher_stop(publisher: *mut c_void) -> ErrorCode {
     check_null!(publisher);
     unsafe {
-        (*(publisher as *mut BlockPublisher)).stop()
+        (*(publisher as *mut Mutex<BlockPublisher>)).lock().unwrap().stop()
     }
     ErrorCode::Success
 }
@@ -152,7 +193,7 @@ pub extern "C" fn block_publisher_pending_batch_info(
 ) -> ErrorCode {
     check_null!(publisher);
      unsafe {
-        let info = (*(publisher as *mut BlockPublisher)).pending_batch_info();
+        let info = (*(publisher as *mut Mutex<BlockPublisher>)).lock().unwrap().pending_batch_info();
         *length = info.0;
         *limit = info.1;
     }
@@ -165,7 +206,7 @@ pub extern "C" fn block_publisher_batch_sender(
     incoming_batch_sender: *mut *const c_void,
 ) -> ErrorCode {
     check_null!(publisher);
-    let batch_tx = unsafe { (*(publisher as *mut BlockPublisher)).batch_sender() };
+    let batch_tx = unsafe { (*(publisher as *mut Mutex<BlockPublisher>)).lock().unwrap().batch_sender() };
     let batch_tx_ptr: *mut IncomingBatchSender = Box::into_raw(Box::new(batch_tx));
     unsafe {
         *incoming_batch_sender = batch_tx_ptr as *const c_void;
@@ -184,20 +225,30 @@ pub extern "C" fn block_publisher_on_chain_updated(
     check_null!(publisher);
     let py = unsafe { Python::assume_gil_acquired() };
     let chain_head = unsafe { PyObject::from_borrowed_ptr(py, chain_head_ptr) };
-    let committed_batches: Vec<Batch> = unsafe { PyObject::from_borrowed_ptr(py, committed_batches_ptr) }
-        .extract::<PyList>(py)
-        .unwrap()
-        .iter(py)
-        .map(|pyobj| pyobj.extract::<Batch>(py).unwrap())
-        .collect();
-    let uncommitted_batches: Vec<Batch> = unsafe { PyObject::from_borrowed_ptr(py, uncommitted_batches_ptr) }
-        .extract::<PyList>(py)
-        .unwrap()
-        .iter(py)
-        .map(|pyobj| pyobj.extract::<Batch>(py).unwrap())
-        .collect();
+    let py_committed_batches = unsafe { PyObject::from_borrowed_ptr(py, committed_batches_ptr) };
+    let committed_batches: Vec<Batch> = if py_committed_batches == Python::None(py) {
+        Vec::new()
+    } else {
+        py_committed_batches
+            .extract::<PyList>(py)
+            .expect("Failed to extract PyList from committed_batches")
+            .iter(py)
+            .map(|pyobj| pyobj.extract::<Batch>(py).unwrap())
+            .collect()
+    };
+    let py_uncommitted_batches = unsafe { PyObject::from_borrowed_ptr(py, uncommitted_batches_ptr) };
+    let uncommitted_batches: Vec<Batch> = if py_uncommitted_batches == Python::None(py) {
+        Vec::new()
+    } else {
+        py_uncommitted_batches
+            .extract::<PyList>(py)
+            .expect("Failed to extract PyList from uncommitted_batches")
+            .iter(py)
+            .map(|pyobj| pyobj.extract::<Batch>(py).unwrap())
+            .collect()
+    };
     unsafe {
-        (*(publisher as *mut BlockPublisher)).on_chain_updated(
+        (*(publisher as *mut Mutex<BlockPublisher>)).lock().unwrap().on_chain_updated(
             chain_head,
             committed_batches,
             uncommitted_batches,
@@ -218,7 +269,7 @@ pub extern "C" fn block_publisher_has_batch(
         Err(_) => return ErrorCode::InvalidInput,
     };
     unsafe {
-        *has = (*(publisher as *mut BlockPublisher)).has_batch(batch_id);
+        *has = (*(publisher as *mut Mutex<BlockPublisher>)).lock().unwrap().has_batch(batch_id);
     }
     ErrorCode::Success
 }
