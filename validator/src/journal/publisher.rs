@@ -16,8 +16,11 @@
  */
 
 use batch::Batch;
+use block::Block;
 
-use cpython::{PyObject};
+use cpython;
+use cpython::ObjectProtocol;
+use cpython::PyObject;
 use std::collections::{HashSet, VecDeque};
 use std::mem;
 use std::slice::Iter;
@@ -25,9 +28,30 @@ use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, SendError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
+use execution::execution_platform::ExecutionPlatform;
+use execution::py_executor::PyExecutor;
+use journal::candidate_block::CandidateBlock;
+
+const NUM_PUBLISH_COUNT_SAMPLES: usize = 5;
+const INITIAL_PUBLISH_COUNT: usize = 30;
+
+/// Collects and tracks the changes in various states of the
+/// Publisher. For example it tracks `consensus_ready`,
+/// which denotes entering or exiting this state.
+struct PublisherLoggingStates {
+    consensus_ready: bool,
+}
+
+impl PublisherLoggingStates {
+    fn new() -> Self {
+        PublisherLoggingStates {
+            consensus_ready: true,
+        }
+    }
+}
 
 pub struct BlockPublisher {
-    transaction_executor: PyObject,
+    tep: Box<ExecutionPlatform>,
     block_cache: PyObject,
     state_view_factory: PyObject,
     settings_cache: PyObject,
@@ -44,6 +68,11 @@ pub struct BlockPublisher {
     batch_injector_factory: PyObject,
     batch_tx: IncomingBatchSender,
     batch_rx: IncomingBatchReceiver,
+
+    candidate_block: Arc<Mutex<Option<CandidateBlock>>>,
+    publisher_chain_head: Arc<Mutex<Option<Block>>>,
+    pending_batches: PendingBatchesPool,
+    publisher_logging_states: PublisherLoggingStates,
 }
 
 impl BlockPublisher {
@@ -65,8 +94,10 @@ impl BlockPublisher {
         batch_injector_factory: PyObject,
     ) -> Self {
         let (batch_tx, batch_rx) = make_batch_queue();
+        let tep = Box::new(PyExecutor::new(transaction_executor).unwrap());
+
         BlockPublisher {
-            transaction_executor,
+            tep,
             block_cache,
             state_view_factory,
             settings_cache,
@@ -83,11 +114,18 @@ impl BlockPublisher {
             batch_injector_factory,
             batch_tx,
             batch_rx,
+            candidate_block: Arc::new(Mutex::new(None)),
+            publisher_chain_head: Arc::new(Mutex::new(None)),
+            pending_batches: PendingBatchesPool::new(
+                NUM_PUBLISH_COUNT_SAMPLES,
+                INITIAL_PUBLISH_COUNT,
+            ),
+            publisher_logging_states: PublisherLoggingStates::new(),
         }
     }
 
     pub fn start(&self) {
-        unimplemented!();
+        unimplemented!()
     }
 
     pub fn stop(&self) {
@@ -102,12 +140,119 @@ impl BlockPublisher {
         unimplemented!();
     }
 
-    pub fn on_chain_updated(&self, _chain_head: PyObject, _committed_batches: Vec<Batch>, _uncommitted_batches: Vec<Batch>) {
-        unimplemented!();
+    fn get_state_view(&self, py: cpython::Python, previous_block: PyObject) -> PyObject {
+        let block_wrapper_mod = py.import("sawtooth_validator.journal.block_wrapper")
+            .expect("Unable to import sawtooth_validator.journal.block_wrapper");
+
+        let block_wrapper = block_wrapper_mod
+            .get(py, "BlockWrapper")
+            .expect("block_wrapper.py has no class BlockWrapper");
+        block_wrapper
+            .call_method(
+                py,
+                "state_view_for_block",
+                (previous_block, &self.state_view_factory),
+                None,
+            )
+            .expect("BlockWrapper, unable to call state_view_for_block")
     }
 
-    pub fn has_batch(&self, _batch_id: &str) -> bool {
-        unimplemented!();
+    fn load_injectors(&self, py: cpython::Python, block_id: &str) -> Vec<PyObject> {
+        self.batch_injector_factory
+            .call_method(py, "create_injectors", (block_id,), None)
+            .expect("BatchInjectorFactory has no method 'create_injectors'")
+            .extract::<cpython::PyList>(py)
+            .unwrap()
+            .iter(py)
+            .collect()
+    }
+
+    fn load_consensus(
+        &self,
+        py: cpython::Python,
+        block: Block,
+        state_view: cpython::PyObject,
+        public_key: String,
+    ) -> cpython::PyObject {
+        let consensus_factory_mod = py.import(
+            "sawtooth_validator.journal.consensus.consensus_factory",
+        ).expect("Unable to import sawtooth_validator.journal.consensus.consensus_factory");
+        let consensus_factory = consensus_factory_mod.get(py, "ConsensusFactory").unwrap();
+        consensus_factory
+            .call_method(py, "get_configured_consensus_module", cpython::NoArgs, None)
+            .expect("ConsensusFactory has no method get_configured_consensus_module")
+    }
+
+    fn get_public_key(&self, py: cpython::Python) -> String {
+        self.identity_signer
+            .call_method(py, "get_public_key", cpython::NoArgs, None)
+            .expect("IdentitySigner has no method get_public_key")
+            .call_method(py, "as_hex", cpython::NoArgs, None)
+            .expect("PublicKey object as no method as_hex")
+            .extract::<String>(py)
+            .unwrap()
+    }
+
+    fn is_building_block(&self) -> bool {
+        if let Ok(candidate_block) = self.candidate_block.lock() {
+            (*candidate_block).is_some()
+        } else {
+            warn!("BlockPublisher Candidate block lock is poisoned");
+            false
+        }
+    }
+
+    fn can_build_block(&self) -> bool {
+        if let Ok(chain_head) = self.publisher_chain_head.lock() {
+            (*chain_head).is_some() && self.pending_batches.len() > 0
+        } else {
+            warn!("BlockPublisher chain_head lock is poisoned!");
+            false
+        }
+    }
+
+    fn log_consensus_state(&mut self, ready: bool) {
+        if ready && !self.publisher_logging_states.consensus_ready {
+            self.publisher_logging_states.consensus_ready = true;
+            debug!("Consensus is ready to build candidate block");
+        } else {
+            self.publisher_logging_states.consensus_ready = false;
+            debug!("Consensus not ready to build candidate block");
+        }
+    }
+
+    fn cancel_block(&self) {
+        if let Ok(mut candidate_block) = self.candidate_block.lock() {
+            if let Some(ref mut candidate_block) = *candidate_block {
+                candidate_block.cancel();
+            }
+        } else {
+            warn!("Block Publisher, candidate block lock is poisoned");
+        }
+    }
+
+    pub fn on_chain_updated(
+        &self,
+        chain_head: PyObject,
+        committed_batches: Vec<Batch>,
+        uncommitted_batches: Vec<Batch>,
+    ) {
+        unimplemented!()
+    }
+
+    pub fn has_batch(&self, batch_id: &str) -> bool {
+        if let Ok(_) = self.publisher_chain_head.lock() {
+            if self.pending_batches.contains(batch_id) {
+                return true;
+            }
+            self.batch_tx.has_batch(batch_id).unwrap_or_else(|_| {
+                warn!("In BlockPublisher.has_batch, batchsender.has_batch errored");
+                false
+            })
+        } else {
+            warn!("BlockPublisher, chain_head_lock is poisoned");
+            false
+        }
     }
 }
 
@@ -162,6 +307,10 @@ impl IncomingBatchSender {
         } else {
             Ok(())
         }
+    }
+
+    pub fn has_batch(&self, batch_id: &str) -> Result<bool, BatchQueueError> {
+        Ok(self.ids.lock()?.contains(batch_id))
     }
 }
 
