@@ -231,8 +231,8 @@ impl CandidateBlock {
             }
 
             let validation_enforcer = py.import(
-                "sawtooth_validator.journal.validation_rule_inforcer",
-            ).expect("Unable to import sawtooth_validator.journal.validation_rule_inforcer");
+                "sawtooth_validator.journal.validation_rule_enforcer",
+            ).expect("Unable to import sawtooth_validator.journal.validation_rule_enforcer");
             let batches = cpython::PyList::new(
                 py,
                 &self.pending_batches
