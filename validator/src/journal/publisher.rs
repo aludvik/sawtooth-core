@@ -64,11 +64,11 @@ pub struct BlockPublisher {
     data_dir: PyObject,
     config_dir: PyObject,
     permission_verifier: PyObject,
-    check_publish_block_frequency: u64,
+    pub check_publish_block_frequency: u64,
     batch_observers: Vec<PyObject>,
     batch_injector_factory: PyObject,
     batch_tx: IncomingBatchSender,
-    batch_rx: IncomingBatchReceiver,
+    pub batch_rx: IncomingBatchReceiver,
 
     consensus_factory: PyObject,
     block_wrapper_class: PyObject,
