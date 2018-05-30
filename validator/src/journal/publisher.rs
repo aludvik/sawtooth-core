@@ -202,8 +202,8 @@ impl BlockPublisher {
         self.batch_tx.clone()
     }
 
-    pub fn pending_batch_info(&self) -> (usize, usize) {
-        (self.pending_batches.len(), self.pending_batches.limit())
+    pub fn pending_batch_info(&self) -> (i32, i32) {
+        (self.pending_batches.len() as i32, self.pending_batches.limit() as i32)
     }
 
     fn get_state_view(&self, py: Python, previous_block: &BlockWrapper) -> PyObject {
@@ -317,6 +317,7 @@ impl BlockPublisher {
                 break;
             }
         }
+        self.candidate_block = Some(candidate_block);
         Ok(())
     }
 
@@ -369,9 +370,11 @@ impl BlockPublisher {
         state_view: PyObject,
         public_key: String,
     ) -> PyObject {
-        self.consensus_factory
-            .call_method(py, "get_configured_consensus_module", NoArgs, None)
+        let consensus_block_publisher = self.consensus_factory
+            .call_method(py, "get_configured_consensus_module", (block.header_signature(), state_view), None)
             .expect("ConsensusFactory has no method get_configured_consensus_module")
+            .call_method(py, "BlockPublisher", (self.block_cache.clone_ref(py), self.state_view_factory.clone_ref(py), self.batch_sender.clone_ref(py), self.data_dir.clone_ref(py), self.config_dir.clone_ref(py), public_key.clone()), None);
+        consensus_block_publisher.unwrap()
     }
 
     fn get_public_key(&self, py: Python) -> String {

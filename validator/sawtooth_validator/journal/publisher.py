@@ -29,7 +29,7 @@ from sawtooth_validator import metrics
 import ctypes
 from enum import IntEnum
 
-from sawtooth_validator.ffi import PY_LIBRARY
+from sawtooth_validator.ffi import PY_LIBRARY, LIBRARY
 from sawtooth_validator.ffi import OwnedPointer
 
 LOGGER = logging.getLogger(__name__)
@@ -191,14 +191,14 @@ class BlockPublisher(OwnedPointer):
         """Returns a tuple of the current size of the pending batch queue
         and the current queue limit.
         """
-        c_length = ctypes.c_size_t(0)
-        c_limit = ctypes.c_size_t(0)
+        c_length = ctypes.c_int(0)
+        c_limit = ctypes.c_int(0)
         self._call(
             'pending_batch_info',
             ctypes.byref(c_length),
             ctypes.byref(c_limit))
 
-        return (c_length, c_limit)
+        return (c_length.value, c_limit.value)
 
     @property
     def chain_head_lock(self):
@@ -232,7 +232,7 @@ class BlockPublisher(OwnedPointer):
                 "Unhandled exception in BlockPublisher.on_chain_updated")
 
     def has_batch(self, batch_id):
-        has = ctypes.bool(False)
+        has = ctypes.c_bool(False)
         c_batch_id = ctypes.c_char_p(batch_id.encode())
 
         self._call(
