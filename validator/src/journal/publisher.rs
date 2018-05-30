@@ -467,9 +467,14 @@ impl BlockPublisher {
         }
 
         if self.is_building_block() {
-            if let Ok(result) = self.finalize_block(force) {
-                if result.block.is_some() {
+            match self.finalize_block(force) {
+                Ok(result) => if result.block.is_some() {
                     self.publish_block(result.block.unwrap(), result.injected_batch_ids);
+                } else {
+                    debug!("FinalizeBlockResult.block was None");
+                },
+                Err(err) => {
+                    error!("Error finalizing block: {:?}", err);
                 }
             }
         }
