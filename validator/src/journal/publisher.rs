@@ -404,12 +404,16 @@ impl BlockPublisher {
     }
 
     fn log_consensus_state(&mut self, ready: bool) {
-        if ready && !self.publisher_logging_states.consensus_ready {
-            self.publisher_logging_states.consensus_ready = true;
-            debug!("Consensus is ready to build candidate block");
+        if ready {
+            if !self.publisher_logging_states.consensus_ready {
+                self.publisher_logging_states.consensus_ready = true;
+                debug!("Consensus is ready to build candidate block");
+            }
         } else {
-            self.publisher_logging_states.consensus_ready = false;
-            debug!("Consensus not ready to build candidate block");
+            if self.publisher_logging_states.consensus_ready {
+                self.publisher_logging_states.consensus_ready = false;
+                debug!("Consensus not ready to build candidate block");
+            }
         }
     }
 
@@ -456,7 +460,9 @@ impl BlockPublisher {
             let chain_head = self.chain_head.clone().unwrap();
             match self.initialize_block(&chain_head) {
                 Ok(_) => self.log_consensus_state(true),
-                Err(_) => self.log_consensus_state(false),
+                Err(InitializeBlockError::ConsensusNotReady) => self.log_consensus_state(false),
+                Err(InitializeBlockError::InvalidState) =>
+                    warn!("Tried to initialize block but block already initialized."),
             }
         }
 
