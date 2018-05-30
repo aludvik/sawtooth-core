@@ -101,11 +101,11 @@ impl BlockPublisher {
         block_header_class: PyObject,
         block_builder_class: PyObject,
         settings_view_class: PyObject,
-    ) -> Self {
+    ) -> Arc<Mutex<Self>> {
         let (batch_tx, batch_rx) = make_batch_queue();
         let tep = Box::new(PyExecutor::new(transaction_executor).unwrap());
 
-        BlockPublisher {
+        Arc::new(Mutex::new(BlockPublisher {
             transaction_executor: tep,
             block_cache,
             state_view_factory,

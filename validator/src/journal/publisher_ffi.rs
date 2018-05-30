@@ -17,6 +17,7 @@
 use py_ffi;
 use std::os::raw::{c_char, c_void};
 use std::ffi::CStr;
+use std::sync::{Arc, Mutex};
 
 use cpython::{PyObject, PyList, Python};
 
@@ -150,7 +151,8 @@ pub extern "C" fn block_publisher_new(
         settings_view_class);
 
     unsafe {
-        *block_publisher_ptr = Box::into_raw(Box::new(publisher)) as *const c_void;
+        let ptr: *const Mutex<BlockPublisher> = Arc::into_raw(publisher);
+        *block_publisher_ptr = ptr as *const c_void;
     }
 
     ErrorCode::Success
@@ -159,7 +161,7 @@ pub extern "C" fn block_publisher_new(
 #[no_mangle]
 pub extern "C" fn block_publisher_drop(publisher: *mut c_void) -> ErrorCode {
     check_null!(publisher);
-    unsafe { Box::from_raw(publisher as *mut BlockPublisher) };
+    unsafe { Arc::from_raw(publisher as *mut Mutex<BlockPublisher>) };
     ErrorCode::Success
 }
 
@@ -167,7 +169,9 @@ pub extern "C" fn block_publisher_drop(publisher: *mut c_void) -> ErrorCode {
 pub extern "C" fn block_publisher_start(publisher: *mut c_void) -> ErrorCode {
     check_null!(publisher);
     unsafe {
-        (*(publisher as *mut BlockPublisher)).start()
+        let publisher: Arc<Mutex<BlockPublisher>> = Arc::from_raw(publisher as *mut Mutex<BlockPublisher>);
+        BlockPublisher::start(Arc::clone(&publisher));
+        Arc::into_raw(publisher);
     }
     ErrorCode::Success
 }
@@ -176,7 +180,7 @@ pub extern "C" fn block_publisher_start(publisher: *mut c_void) -> ErrorCode {
 pub extern "C" fn block_publisher_stop(publisher: *mut c_void) -> ErrorCode {
     check_null!(publisher);
     unsafe {
-        (*(publisher as *mut BlockPublisher)).stop()
+        (*(publisher as *mut Mutex<BlockPublisher>)).lock().unwrap().stop()
     }
     ErrorCode::Success
 }
@@ -189,7 +193,7 @@ pub extern "C" fn block_publisher_pending_batch_info(
 ) -> ErrorCode {
     check_null!(publisher);
      unsafe {
-        let info = (*(publisher as *mut BlockPublisher)).pending_batch_info();
+        let info = (*(publisher as *mut Mutex<BlockPublisher>)).lock().unwrap().pending_batch_info();
         *length = info.0;
         *limit = info.1;
     }
@@ -202,7 +206,7 @@ pub extern "C" fn block_publisher_batch_sender(
     incoming_batch_sender: *mut *const c_void,
 ) -> ErrorCode {
     check_null!(publisher);
-    let batch_tx = unsafe { (*(publisher as *mut BlockPublisher)).batch_sender() };
+    let batch_tx = unsafe { (*(publisher as *mut Mutex<BlockPublisher>)).lock().unwrap().batch_sender() };
     let batch_tx_ptr: *mut IncomingBatchSender = Box::into_raw(Box::new(batch_tx));
     unsafe {
         *incoming_batch_sender = batch_tx_ptr as *const c_void;
@@ -244,7 +248,7 @@ pub extern "C" fn block_publisher_on_chain_updated(
             .collect()
     };
     unsafe {
-        (*(publisher as *mut BlockPublisher)).on_chain_updated(
+        (*(publisher as *mut Mutex<BlockPublisher>)).lock().unwrap().on_chain_updated(
             chain_head,
             committed_batches,
             uncommitted_batches,
@@ -265,7 +269,7 @@ pub extern "C" fn block_publisher_has_batch(
         Err(_) => return ErrorCode::InvalidInput,
     };
     unsafe {
-        *has = (*(publisher as *mut BlockPublisher)).has_batch(batch_id);
+        *has = (*(publisher as *mut Mutex<BlockPublisher>)).lock().unwrap().has_batch(batch_id);
     }
     ErrorCode::Success
 }
