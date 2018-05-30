@@ -76,7 +76,7 @@ pub struct BlockPublisher {
     block_builder_class: PyObject,
     settings_view_class: PyObject,
 
-    candidate_block: Arc<Mutex<Option<CandidateBlock>>>,
+    candidate_block: Option<CandidateBlock>,
     pending_batches: PendingBatchesPool,
     publisher_logging_states: PublisherLoggingStates,
 }
@@ -130,7 +130,7 @@ impl BlockPublisher {
             block_header_class,
             block_builder_class,
             settings_view_class,
-            candidate_block: Arc::new(Mutex::new(None)),
+            candidate_block: None,
             pending_batches: PendingBatchesPool::new(
                 NUM_PUBLISH_COUNT_SAMPLES,
                 INITIAL_PUBLISH_COUNT,
@@ -199,12 +199,7 @@ impl BlockPublisher {
     }
 
     fn is_building_block(&self) -> bool {
-        if let Ok(candidate_block) = self.candidate_block.lock() {
-            (*candidate_block).is_some()
-        } else {
-            warn!("BlockPublisher Candidate block lock is poisoned");
-            false
-        }
+        self.candidate_block.is_some()
     }
 
     fn can_build_block(&self) -> bool {
@@ -221,13 +216,11 @@ impl BlockPublisher {
         }
     }
 
-    fn cancel_block(&self) {
-        if let Ok(mut candidate_block) = self.candidate_block.lock() {
-            if let Some(ref mut candidate_block) = *candidate_block {
-                candidate_block.cancel();
-            }
-        } else {
-            warn!("Block Publisher, candidate block lock is poisoned");
+    fn cancel_block(&mut self) {
+        let mut candidate_block = None;
+        mem::swap(&mut self.candidate_block, &mut candidate_block);
+        if let Some(mut candidate_block) = candidate_block {
+            candidate_block.cancel();
         }
     }
 
