@@ -189,6 +189,7 @@ impl BlockPublisher {
                     }
                 }
             }
+            warn!("PublisherThread exiting");
         }).unwrap();
     }
 
@@ -228,7 +229,11 @@ impl BlockPublisher {
     }
 
     fn initialize_block(&mut self, previous_block: &BlockWrapper) -> Result<(), InitializeBlockError> {
-        if self.candidate_block.is_some() { return Err(InitializeBlockError::InvalidState); }
+        debug!("initialize_block({:?})", previous_block);
+        if self.candidate_block.is_some() {
+            warn!("Tried to initialize block but block already initialized");
+            return Err(InitializeBlockError::InvalidState);
+        }
 
         let gil = Python::acquire_gil();
         let py = gil.python();
