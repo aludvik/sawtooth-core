@@ -254,12 +254,16 @@ pub extern "C" fn block_publisher_on_chain_updated(
             .map(|pyobj| pyobj.extract::<Batch>(py).unwrap())
             .collect()
     };
-    let chain_head: BlockWrapper = chain_head.extract(py)
-        .expect("Got a new chain head that wasn't a BlockWrapper");
+    let chain_head = if chain_head == Python::None(py) {
+        None
+    } else {
+        Some(chain_head.extract(py)
+            .expect("Got a new chain head that wasn't a BlockWrapper"))
+    };
 
     unsafe {
         (*(publisher as *mut Mutex<BlockPublisher>)).lock().unwrap().on_chain_updated(
-            Some(chain_head),
+            chain_head,
             committed_batches,
             uncommitted_batches,
         )
