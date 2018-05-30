@@ -18,6 +18,7 @@ use py_ffi;
 use std::os::raw::{c_char, c_void};
 use std::ffi::CStr;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use cpython::{PyObject, PyList, Python, PyClone};
 
@@ -99,7 +100,8 @@ pub extern "C" fn block_publisher_new(
     } else {
         chain_head.extract(py).expect("Got chain head that wasn't a BlockWrapper")
     };
-    let check_publish_block_frequency: u64 = check_publish_block_frequency.extract(py).unwrap();
+    let check_publish_block_frequency: Duration =
+        Duration::from_millis(check_publish_block_frequency.extract(py).unwrap());
     let batch_observers: Vec<PyObject> = batch_observers.extract::<PyList>(py).unwrap().iter(py).collect();
 
     let batch_publisher_mod = py.import("sawtooth_validator.journal.consensus.batch_publisher")

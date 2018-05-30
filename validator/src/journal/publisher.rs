@@ -80,7 +80,7 @@ pub struct BlockPublisher {
     data_dir: PyObject,
     config_dir: PyObject,
     permission_verifier: PyObject,
-    pub check_publish_block_frequency: u64,
+    pub check_publish_block_frequency: Duration,
     batch_observers: Vec<PyObject>,
     batch_injector_factory: PyObject,
     batch_tx: IncomingBatchSender,
@@ -112,7 +112,7 @@ impl BlockPublisher {
         data_dir: PyObject,
         config_dir: PyObject,
         permission_verifier: PyObject,
-        check_publish_block_frequency: u64,
+        check_publish_block_frequency: Duration,
         batch_observers: Vec<PyObject>,
         batch_injector_factory: PyObject,
         consensus_factory: PyObject,
@@ -162,13 +162,13 @@ impl BlockPublisher {
         builder.spawn(move || {
             let mut now = Instant::now();
             let check_period = {
-                Duration::from_millis(publisher.lock().unwrap().check_publish_block_frequency)
+                publisher.lock().unwrap().check_publish_block_frequency
             };
             loop {
                 debug!("loopy");
                 { // Receive and process a batch
                     let mut unlocked = publisher.lock().unwrap();
-                    match unlocked.batch_rx.get(Duration::from_secs(1)) {
+                    match unlocked.batch_rx.get(check_period) {
                         Err(err) => match err {
                             BatchQueueError::Timeout => {
                                 if unlocked.exit.get() {
