@@ -31,7 +31,7 @@ use pylogger;
 
 use scheduler::Scheduler;
 
-pub enum BlockPublisherError {
+pub enum CandidateBlockError {
     ConsensusNotReady,
     NoPendingBatchesRemaining,
 }
@@ -318,13 +318,13 @@ impl CandidateBlock {
             .unwrap()
     }
 
-    pub fn finalize(&mut self, force: bool) -> Result<FinalizeBlockResult, BlockPublisherError> {
+    pub fn finalize(&mut self, force: bool) -> Result<FinalizeBlockResult, CandidateBlockError> {
         if !force || self.pending_batches.is_empty() {
-            return Err(BlockPublisherError::NoPendingBatchesRemaining);
+            return Err(CandidateBlockError::NoPendingBatchesRemaining);
         }
         let py = unsafe { cpython::Python::assume_gil_acquired() };
         if !self.check_publish_block(py, &self.block_builder) {
-            return Err(BlockPublisherError::ConsensusNotReady);
+            return Err(CandidateBlockError::ConsensusNotReady);
         }
 
         self.scheduler.finalize(true).unwrap();
