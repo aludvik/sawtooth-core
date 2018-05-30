@@ -317,6 +317,7 @@ impl BlockPublisher {
                 break;
             }
         }
+        self.candidate_block = Some(candidate_block);
         Ok(())
     }
 
