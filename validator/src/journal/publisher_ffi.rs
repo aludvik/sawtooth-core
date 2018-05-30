@@ -23,6 +23,7 @@ use cpython::{PyObject, PyList, Python, PyClone};
 
 use batch::Batch;
 use journal::publisher::{BlockPublisher, IncomingBatchSender};
+use journal::block_wrapper::BlockWrapper;
 
 #[repr(u32)]
 #[derive(Debug)]
@@ -253,9 +254,12 @@ pub extern "C" fn block_publisher_on_chain_updated(
             .map(|pyobj| pyobj.extract::<Batch>(py).unwrap())
             .collect()
     };
+    let chain_head: BlockWrapper = chain_head.extract(py)
+        .expect("Got a new chain head that wasn't a BlockWrapper");
+
     unsafe {
         (*(publisher as *mut Mutex<BlockPublisher>)).lock().unwrap().on_chain_updated(
-            chain_head,
+            Some(chain_head),
             committed_batches,
             uncommitted_batches,
         )

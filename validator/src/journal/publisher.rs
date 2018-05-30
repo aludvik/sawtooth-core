@@ -359,7 +359,7 @@ impl BlockPublisher {
         self.block_sender.call_method(py, "send", (block,), Some(&kwargs))
             .expect("BlockSender has no method send");
 
-        self.on_chain_updated(Python::None(py), Vec::new(), Vec::new());
+        self.on_chain_updated(None, Vec::new(), Vec::new());
     }
 
     fn load_consensus(
@@ -454,28 +454,20 @@ impl BlockPublisher {
 
     pub fn on_chain_updated(
         &mut self,
-        chain_head: PyObject,
+        chain_head: Option<BlockWrapper>,
         committed_batches: Vec<Batch>,
         uncommitted_batches: Vec<Batch>,
     ) {
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-        if let Ok(chain_head_is_some) = chain_head.is_true(py) {
-            if chain_head_is_some {
-                if let Ok(chain_head) = chain_head.extract::<BlockWrapper>(py) {
-                    info!("Now building on top of block, {}", chain_head);
-                    self.chain_head = Some(chain_head);
-                    self.cancel_block()
-                } else {
-                    warn!("BlockPublisher, on_chain_updated, Failed to extract Block from chain_head");
-                }
-            } else {
-                info!("Block publishing is suspended until new chain head arrives");
-                self.chain_head = None;
-                self.cancel_block()
-            }
+        if let Some(chain_head) = chain_head {
+            info!("Now building on top of block, {}", chain_head);
+            self.cancel_block();
+            self.pending_batches.update_limit(chain_head.block.batches.len());
+            self.pending_batches.rebuild(Some(committed_batches), Some(uncommitted_batches));
+            self.chain_head = Some(chain_head);
         } else {
-            warn!("BlockPublisher, chain_head lock poisoned");
+            info!("Block publishing is suspended until new chain head arrives");
+            self.cancel_block();
+            self.chain_head = None;
         }
     }
 
