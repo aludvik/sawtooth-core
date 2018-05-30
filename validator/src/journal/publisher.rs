@@ -18,9 +18,7 @@
 use batch::Batch;
 use block::Block;
 
-use cpython;
-use cpython::ObjectProtocol;
-use cpython::PyObject;
+use cpython::{ObjectProtocol, ToPyObject, PyObject, Python, NoArgs, PyList, PyDict, PyString, PyClone};
 use std::collections::{HashSet, VecDeque};
 use std::mem;
 use std::slice::Iter;
@@ -166,11 +164,11 @@ impl BlockPublisher {
             .expect("BlockWrapper, unable to call state_view_for_block")
     }
 
-    fn load_injectors(&self, py: cpython::Python, block_id: &str) -> Vec<PyObject> {
+    fn load_injectors(&self, py: Python, block_id: &str) -> Vec<PyObject> {
         self.batch_injector_factory
             .call_method(py, "create_injectors", (block_id,), None)
             .expect("BatchInjectorFactory has no method 'create_injectors'")
-            .extract::<cpython::PyList>(py)
+            .extract::<PyList>(py)
             .unwrap()
             .iter(py)
             .collect()
@@ -178,21 +176,21 @@ impl BlockPublisher {
 
     fn load_consensus(
         &self,
-        py: cpython::Python,
+        py: Python,
         block: Block,
-        state_view: cpython::PyObject,
+        state_view: PyObject,
         public_key: String,
-    ) -> cpython::PyObject {
+    ) -> PyObject {
         self.consensus_factory
             .call_method(py, "get_configured_consensus_module", NoArgs, None)
             .expect("ConsensusFactory has no method get_configured_consensus_module")
     }
 
-    fn get_public_key(&self, py: cpython::Python) -> String {
+    fn get_public_key(&self, py: Python) -> String {
         self.identity_signer
-            .call_method(py, "get_public_key", cpython::NoArgs, None)
+            .call_method(py, "get_public_key", NoArgs, None)
             .expect("IdentitySigner has no method get_public_key")
-            .call_method(py, "as_hex", cpython::NoArgs, None)
+            .call_method(py, "as_hex", NoArgs, None)
             .expect("PublicKey object as no method as_hex")
             .extract::<String>(py)
             .unwrap()
