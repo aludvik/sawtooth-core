@@ -49,7 +49,7 @@ pub struct CandidateBlock {
     scheduler: Box<Scheduler>,
     max_batches: usize,
     block_builder: cpython::PyObject,
-    batch_injectors: cpython::PyObject,
+    batch_injectors: Vec<cpython::PyObject>,
     identity_signer: cpython::PyObject,
     settings_view: cpython::PyObject,
     permission_verifier: cpython::PyObject,
@@ -69,7 +69,7 @@ impl CandidateBlock {
         committed_txn_cache: TransactionCommitCache,
         block_builder: cpython::PyObject,
         max_batches: usize,
-        batch_injectors: cpython::PyObject,
+        batch_injectors: Vec<cpython::PyObject>,
         identity_signer: cpython::PyObject,
         settings_view: cpython::PyObject,
         permission_verifier: cpython::PyObject,
@@ -170,17 +170,13 @@ impl CandidateBlock {
         }
     }
 
-    fn poll_injectors<F: Fn(cpython::PyObject) -> Vec<cpython::PyObject>>(
+    fn poll_injectors<F: Fn(&cpython::PyObject) -> Vec<cpython::PyObject>>(
         &self,
         poller: F,
     ) -> Vec<Batch> {
         let mut batches = vec![];
         let py = unsafe { cpython::Python::assume_gil_acquired() };
-        for injector in self.batch_injectors
-            .extract::<cpython::PyList>(py)
-            .unwrap()
-            .iter(py)
-        {
+        for injector in self.batch_injectors.iter() {
             let inject_list = poller(injector);
             if !inject_list.is_empty() {
                 for b in inject_list {
@@ -217,7 +213,7 @@ impl CandidateBlock {
 
             // Inject blocks at the beginning of a Candidate Block
             if self.pending_batches.is_empty() {
-                let mut injected_batches = self.poll_injectors(|injector: cpython::PyObject| {
+                let mut injected_batches = self.poll_injectors(|injector: &cpython::PyObject| {
                     match injector
                         .call_method(py, "block_start", (self.previous_block_id(),), None)
                         .expect("BlockInjector has not method 'block_start'")
