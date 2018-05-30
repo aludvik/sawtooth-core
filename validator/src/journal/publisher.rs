@@ -16,9 +16,8 @@
  */
 
 use batch::Batch;
-use block::Block;
 
-use cpython::{ObjectProtocol, ToPyObject, PyObject, Python, NoArgs, PyList, PyDict, PyString, PyClone};
+use cpython::{ObjectProtocol, PyObject, Python, NoArgs, PyList, PyDict, PyClone};
 use std::collections::{HashSet, VecDeque};
 use std::mem;
 use std::slice::Iter;
