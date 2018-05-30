@@ -52,17 +52,20 @@ impl PublisherLoggingStates {
     }
 }
 
+#[derive(Debug)]
 pub enum InitializeBlockError {
     ConsensusNotReady,
     InvalidState,
 }
 
+#[derive(Debug)]
 pub enum FinalizeBlockError {
     ConsensusNotReady,
     NoPendingBatchesRemaining,
     InvalidState,
 }
 
+#[derive(Debug)]
 pub enum StartError {
     Disconnected,
 }
@@ -401,12 +404,16 @@ impl BlockPublisher {
     }
 
     fn log_consensus_state(&mut self, ready: bool) {
-        if ready && !self.publisher_logging_states.consensus_ready {
-            self.publisher_logging_states.consensus_ready = true;
-            debug!("Consensus is ready to build candidate block");
+        if ready {
+            if !self.publisher_logging_states.consensus_ready {
+                self.publisher_logging_states.consensus_ready = true;
+                debug!("Consensus is ready to build candidate block");
+            }
         } else {
-            self.publisher_logging_states.consensus_ready = false;
-            debug!("Consensus not ready to build candidate block");
+            if self.publisher_logging_states.consensus_ready {
+                self.publisher_logging_states.consensus_ready = false;
+                debug!("Consensus not ready to build candidate block");
+            }
         }
     }
 
@@ -453,14 +460,21 @@ impl BlockPublisher {
             let chain_head = self.chain_head.clone().unwrap();
             match self.initialize_block(&chain_head) {
                 Ok(_) => self.log_consensus_state(true),
-                Err(_) => self.log_consensus_state(false),
+                Err(InitializeBlockError::ConsensusNotReady) => self.log_consensus_state(false),
+                Err(InitializeBlockError::InvalidState) =>
+                    warn!("Tried to initialize block but block already initialized."),
             }
         }
 
         if self.is_building_block() {
-            if let Ok(result) = self.finalize_block(force) {
-                if result.block.is_some() {
+            match self.finalize_block(force) {
+                Ok(result) => if result.block.is_some() {
                     self.publish_block(result.block.unwrap(), result.injected_batch_ids);
+                } else {
+                    debug!("FinalizeBlockResult.block was None");
+                },
+                Err(err) => {
+                    error!("Error finalizing block: {:?}", err);
                 }
             }
         }
