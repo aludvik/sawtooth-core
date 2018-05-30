@@ -216,18 +216,28 @@ pub extern "C" fn block_publisher_on_chain_updated(
     check_null!(publisher);
     let py = unsafe { Python::assume_gil_acquired() };
     let chain_head = unsafe { PyObject::from_borrowed_ptr(py, chain_head_ptr) };
-    let committed_batches: Vec<Batch> = unsafe { PyObject::from_borrowed_ptr(py, committed_batches_ptr) }
-        .extract::<PyList>(py)
-        .unwrap()
-        .iter(py)
-        .map(|pyobj| pyobj.extract::<Batch>(py).unwrap())
-        .collect();
-    let uncommitted_batches: Vec<Batch> = unsafe { PyObject::from_borrowed_ptr(py, uncommitted_batches_ptr) }
-        .extract::<PyList>(py)
-        .unwrap()
-        .iter(py)
-        .map(|pyobj| pyobj.extract::<Batch>(py).unwrap())
-        .collect();
+    let py_committed_batches = unsafe { PyObject::from_borrowed_ptr(py, committed_batches_ptr) };
+    let committed_batches: Vec<Batch> = if py_committed_batches == Python::None(py) {
+        Vec::new()
+    } else {
+        py_committed_batches
+            .extract::<PyList>(py)
+            .expect("Failed to extract PyList from committed_batches")
+            .iter(py)
+            .map(|pyobj| pyobj.extract::<Batch>(py).unwrap())
+            .collect()
+    };
+    let py_uncommitted_batches = unsafe { PyObject::from_borrowed_ptr(py, uncommitted_batches_ptr) };
+    let uncommitted_batches: Vec<Batch> = if py_uncommitted_batches == Python::None(py) {
+        Vec::new()
+    } else {
+        py_uncommitted_batches
+            .extract::<PyList>(py)
+            .expect("Failed to extract PyList from uncommitted_batches")
+            .iter(py)
+            .map(|pyobj| pyobj.extract::<Batch>(py).unwrap())
+            .collect()
+    };
     unsafe {
         (*(publisher as *mut BlockPublisher)).on_chain_updated(
             chain_head,
