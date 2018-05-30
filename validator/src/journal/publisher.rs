@@ -27,6 +27,7 @@ use std::slice::Iter;
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, SendError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use execution::execution_platform::ExecutionPlatform;
 use execution::py_executor::PyExecutor;
@@ -513,5 +514,27 @@ impl QueueLimit {
         // Limit the number of items to 2 times the publishing average.  This
         // allows the queue to grow geometrically, if the queue is drained.
         2 * self.avg.value()
+    }
+}
+
+/// Utility class for signaling that a background thread should shutdown
+#[derive(Default)]
+pub struct Exit {
+    flag: Mutex<AtomicBool>,
+}
+
+impl Exit {
+    pub fn new() -> Self {
+        Exit {
+            flag: Mutex::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub fn get(&self) -> bool {
+        self.flag.lock().unwrap().load(Ordering::Relaxed)
+    }
+
+    pub fn set(&self) {
+        self.flag.lock().unwrap().store(true, Ordering::Relaxed);
     }
 }
