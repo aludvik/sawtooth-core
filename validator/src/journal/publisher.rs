@@ -77,7 +77,6 @@ pub struct BlockPublisher {
     settings_view_class: PyObject,
 
     candidate_block: Arc<Mutex<Option<CandidateBlock>>>,
-    publisher_chain_head: Arc<Mutex<Option<Block>>>,
     pending_batches: PendingBatchesPool,
     publisher_logging_states: PublisherLoggingStates,
 }
@@ -132,7 +131,6 @@ impl BlockPublisher {
             block_builder_class,
             settings_view_class,
             candidate_block: Arc::new(Mutex::new(None)),
-            publisher_chain_head: Arc::new(Mutex::new(None)),
             pending_batches: PendingBatchesPool::new(
                 NUM_PUBLISH_COUNT_SAMPLES,
                 INITIAL_PUBLISH_COUNT,
@@ -210,12 +208,7 @@ impl BlockPublisher {
     }
 
     fn can_build_block(&self) -> bool {
-        if let Ok(chain_head) = self.publisher_chain_head.lock() {
-            (*chain_head).is_some() && self.pending_batches.len() > 0
-        } else {
-            warn!("BlockPublisher chain_head lock is poisoned!");
-            false
-        }
+        self.chain_head.is_some() && self.pending_batches.len() > 0
     }
 
     fn log_consensus_state(&mut self, ready: bool) {
@@ -266,18 +259,13 @@ impl BlockPublisher {
     }
 
     pub fn has_batch(&self, batch_id: &str) -> bool {
-        if let Ok(_) = self.publisher_chain_head.lock() {
-            if self.pending_batches.contains(batch_id) {
-                return true;
-            }
-            self.batch_tx.has_batch(batch_id).unwrap_or_else(|_| {
-                warn!("In BlockPublisher.has_batch, batchsender.has_batch errored");
-                false
-            })
-        } else {
-            warn!("BlockPublisher, chain_head_lock is poisoned");
-            false
+        if self.pending_batches.contains(batch_id) {
+            return true;
         }
+        self.batch_tx.has_batch(batch_id).unwrap_or_else(|_| {
+            warn!("In BlockPublisher.has_batch, batchsender.has_batch errored");
+            false
+        })
     }
 }
 
