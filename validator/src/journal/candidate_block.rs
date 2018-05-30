@@ -39,7 +39,7 @@ pub enum CandidateBlockError {
 pub struct FinalizeBlockResult {
     pub block: Option<cpython::PyObject>,
     pub remaining_batches: Vec<Batch>,
-    pub last_batch: Option<Batch>,
+    pub last_batch: Batch,
     pub injected_batch_ids: Vec<String>,
 }
 
@@ -377,7 +377,7 @@ impl CandidateBlock {
                         .into_iter()
                         .filter(|b| !bad_batches.contains(b))
                         .collect());
-                    return Ok(self.build_result(None, pending_batches));
+                    return self.build_result(None, pending_batches);
                 } else {
                     builder
                         .call_method(py, "add_batch", (batch.clone(),), None)
@@ -398,7 +398,7 @@ impl CandidateBlock {
                 .len(py) == 0
         {
             debug!("Abandoning block, no batches added");
-            return Ok(self.build_result(None, self.pending_batches.clone()));
+            return self.build_result(None, self.pending_batches.clone());
         }
         let block_header = builder
             .getattr(py, "block_header")
@@ -416,7 +416,7 @@ impl CandidateBlock {
                 .into_iter()
                 .filter(|b| !bad_batches.contains(b))
                 .collect());
-            return Ok(self.build_result(None, pending_batches));
+            return self.build_result(None, pending_batches);
         }
 
         builder
@@ -429,29 +429,33 @@ impl CandidateBlock {
             .expect("BlockBuilder has no method 'set_state_hash'");
         self.sign_block(&builder);
 
-        Ok(self.build_result(
+        self.build_result(
             Some(
                 builder
                     .call_method(py, "build_block", cpython::NoArgs, None)
                     .expect("BlockBuilder has no method 'build_block'"),
             ),
             pending_batches,
-        ))
+        )
     }
 
     fn build_result(
         &self,
         block: Option<cpython::PyObject>,
         remaining: Vec<Batch>,
-    ) -> FinalizeBlockResult {
-        FinalizeBlockResult {
-            block,
-            remaining_batches: remaining,
-            last_batch: self.last_batch().cloned(),
-            injected_batch_ids: self.injected_batch_ids
-                .clone()
-                .into_iter()
-                .collect::<Vec<String>>(),
+    ) -> Result<FinalizeBlockResult, CandidateBlockError> {
+        if let Some(last_batch) = self.last_batch().cloned() {
+            Ok(FinalizeBlockResult {
+                block,
+                remaining_batches: remaining,
+                last_batch,
+                injected_batch_ids: self.injected_batch_ids
+                    .clone()
+                    .into_iter()
+                    .collect::<Vec<String>>(),
+            })
+        } else {
+            Err(CandidateBlockError::NoPendingBatchesRemaining)
         }
     }
 }
