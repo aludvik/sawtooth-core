@@ -92,6 +92,11 @@ pub extern "C" fn block_publisher_new(
     let batch_observers = unsafe { PyObject::from_borrowed_ptr(py, batch_observers_ptr) };
     let batch_injector_factory = unsafe { PyObject::from_borrowed_ptr(py, batch_injector_factory_ptr) };
 
+    let chain_head = if chain_head == Python::None(py) {
+        None
+    } else {
+        chain_head.extract(py).expect("Got chain head that wasn't a BlockWrapper")
+    };
     let check_publish_block_frequency: u64 = check_publish_block_frequency.extract(py).unwrap();
     let batch_observers: Vec<PyObject> = batch_observers.extract::<PyList>(py).unwrap().iter(py).collect();
 
