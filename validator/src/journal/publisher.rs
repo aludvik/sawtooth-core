@@ -52,17 +52,20 @@ impl PublisherLoggingStates {
     }
 }
 
+#[derive(Debug)]
 pub enum InitializeBlockError {
     ConsensusNotReady,
     InvalidState,
 }
 
+#[derive(Debug)]
 pub enum FinalizeBlockError {
     ConsensusNotReady,
     NoPendingBatchesRemaining,
     InvalidState,
 }
 
+#[derive(Debug)]
 pub enum StartError {
     Disconnected,
 }
