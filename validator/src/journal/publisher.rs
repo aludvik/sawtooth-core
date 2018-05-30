@@ -370,9 +370,11 @@ impl BlockPublisher {
         state_view: PyObject,
         public_key: String,
     ) -> PyObject {
-        self.consensus_factory
-            .call_method(py, "get_configured_consensus_module", NoArgs, None)
+        let consensus_block_publisher = self.consensus_factory
+            .call_method(py, "get_configured_consensus_module", (block.header_signature(), state_view), None)
             .expect("ConsensusFactory has no method get_configured_consensus_module")
+            .call_method(py, "BlockPublisher", (self.block_cache.clone_ref(py), self.state_view_factory.clone_ref(py), self.batch_sender.clone_ref(py), self.data_dir.clone_ref(py), self.config_dir.clone_ref(py), public_key.clone()), None);
+        consensus_block_publisher.unwrap()
     }
 
     fn get_public_key(&self, py: Python) -> String {
