@@ -455,8 +455,8 @@ impl BlockPublisher {
     }
 
     pub fn on_check_publish_block(&mut self, force: bool) {
-        self.chain_head_lock.lock();
         if !self.is_building_block() && self.can_build_block() {
+            self.chain_head_lock.lock();
             let chain_head = self.chain_head.clone().unwrap();
             match self.initialize_block(&chain_head) {
                 Ok(_) => self.log_consensus_state(true),
@@ -467,6 +467,7 @@ impl BlockPublisher {
         }
 
         if self.is_building_block() {
+            self.chain_head_lock.lock();
             match self.finalize_block(force) {
                 Ok(result) => if result.block.is_some() {
                     self.publish_block(result.block.unwrap(), result.injected_batch_ids);
