@@ -336,14 +336,13 @@ impl BlockPublisher {
             option_result = Some(candidate_block.finalize(force));
         }
 
-        self.candidate_block = None;
-
         if let Some(result) = option_result {
             match result {
                 Ok(finalize_result) => {
                     self.pending_batches.update(
                         finalize_result.remaining_batches.clone(),
                         finalize_result.last_batch.clone());
+                    self.candidate_block = None;
                     Ok(finalize_result)
                 },
                 Err(err) => Err(match err {
