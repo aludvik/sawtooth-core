@@ -379,10 +379,17 @@ impl BlockPublisher {
         state_view: PyObject,
         public_key: String,
     ) -> PyObject {
+        let kwargs = PyDict::new(py);
+        kwargs.set_item(py, "block_cache", self.block_cache.clone_ref(py)).unwrap();
+        kwargs.set_item(py, "state_view_factory", self.state_view_factory.clone_ref(py)).unwrap();
+        kwargs.set_item(py, "batch_publisher", self.batch_publisher.clone_ref(py)).unwrap();
+        kwargs.set_item(py, "data_dir", self.data_dir.clone_ref(py)).unwrap();
+        kwargs.set_item(py, "config_dir", self.config_dir.clone_ref(py)).unwrap();
+        kwargs.set_item(py, "validator_id", public_key.clone()).unwrap();
         let consensus_block_publisher = self.consensus_factory
             .call_method(py, "get_configured_consensus_module", (block.header_signature(), state_view), None)
             .expect("ConsensusFactory has no method get_configured_consensus_module")
-            .call_method(py, "BlockPublisher", (self.block_cache.clone_ref(py), self.state_view_factory.clone_ref(py), self.batch_publisher.clone_ref(py), self.data_dir.clone_ref(py), self.config_dir.clone_ref(py), public_key.clone()), None);
+            .call_method(py, "BlockPublisher", NoArgs, Some(&kwargs));
         consensus_block_publisher.unwrap()
     }
 
