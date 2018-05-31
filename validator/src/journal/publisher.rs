@@ -30,6 +30,7 @@ use std::time::{Instant, Duration};
 
 use execution::execution_platform::ExecutionPlatform;
 use execution::py_executor::PyExecutor;
+use journal::block_wrapper::BlockWrapper;
 use journal::candidate_block::{FinalizeBlockResult, CandidateBlock, CandidateBlockError};
 use journal::chain_commit_state::TransactionCommitCache;
 use journal::pylock::PyLock;
