@@ -159,11 +159,14 @@ class BlockPublisher(OwnedPointer):
             ctypes.py_object(batch_injector_factory),
             ctypes.byref(self.pointer)))
 
-    def _call(self, method, *args):
-        self._to_exception(PY_LIBRARY.call(
+    def _call(self, method, *args, library=LIBRARY):
+        self._to_exception(library.call(
             'block_publisher_' + method,
             self.pointer,
             *args))
+
+    def _py_call(self, method, *args):
+        self._call(method, *args, library=PY_LIBRARY)
 
     @staticmethod
     def _to_exception(res):
@@ -220,7 +223,7 @@ class BlockPublisher(OwnedPointer):
         :return: None
         """
         try:
-            self._call(
+            self._py_call(
                 'on_chain_updated',
                 ctypes.py_object(chain_head),
                 ctypes.py_object(committed_batches),

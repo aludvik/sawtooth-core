@@ -177,11 +177,12 @@ pub extern "C" fn block_publisher_drop(publisher: *mut c_void) -> ErrorCode {
 #[no_mangle]
 pub extern "C" fn block_publisher_start(publisher: *mut c_void) -> ErrorCode {
     check_null!(publisher);
-    unsafe {
-        let publisher: Arc<Mutex<BlockPublisher>> = Arc::from_raw(publisher as *mut Mutex<BlockPublisher>);
-        BlockPublisher::start(Arc::clone(&publisher));
-        Arc::into_raw(publisher);
-    }
+    let publisher: Arc<Mutex<BlockPublisher>> = unsafe {
+         Arc::from_raw(publisher as *mut Mutex<BlockPublisher>)
+    };
+    let publisher_clone = Arc::clone(&publisher);
+    BlockPublisher::start(publisher_clone);
+    Arc::into_raw(publisher);
     ErrorCode::Success
 }
 
@@ -232,35 +233,39 @@ pub extern "C" fn block_publisher_on_chain_updated(
     uncommitted_batches_ptr: *mut py_ffi::PyObject
 ) -> ErrorCode {
     check_null!(publisher);
-    let py = unsafe { Python::assume_gil_acquired() };
-    let chain_head = unsafe { PyObject::from_borrowed_ptr(py, chain_head_ptr) };
-    let py_committed_batches = unsafe { PyObject::from_borrowed_ptr(py, committed_batches_ptr) };
-    let committed_batches: Vec<Batch> = if py_committed_batches == Python::None(py) {
-        Vec::new()
-    } else {
-        py_committed_batches
-            .extract::<PyList>(py)
-            .expect("Failed to extract PyList from committed_batches")
-            .iter(py)
-            .map(|pyobj| pyobj.extract::<Batch>(py).unwrap())
-            .collect()
-    };
-    let py_uncommitted_batches = unsafe { PyObject::from_borrowed_ptr(py, uncommitted_batches_ptr) };
-    let uncommitted_batches: Vec<Batch> = if py_uncommitted_batches == Python::None(py) {
-        Vec::new()
-    } else {
-        py_uncommitted_batches
-            .extract::<PyList>(py)
-            .expect("Failed to extract PyList from uncommitted_batches")
-            .iter(py)
-            .map(|pyobj| pyobj.extract::<Batch>(py).unwrap())
-            .collect()
-    };
-    let chain_head = if chain_head == Python::None(py) {
-        None
-    } else {
-        Some(chain_head.extract(py)
-            .expect("Got a new chain head that wasn't a BlockWrapper"))
+    let (chain_head, committed_batches, uncommitted_batches) = {
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        let chain_head = unsafe { PyObject::from_borrowed_ptr(py, chain_head_ptr) };
+        let py_committed_batches = unsafe { PyObject::from_borrowed_ptr(py, committed_batches_ptr) };
+        let committed_batches: Vec<Batch> = if py_committed_batches == Python::None(py) {
+            Vec::new()
+        } else {
+            py_committed_batches
+                .extract::<PyList>(py)
+                .expect("Failed to extract PyList from committed_batches")
+                .iter(py)
+                .map(|pyobj| pyobj.extract::<Batch>(py).unwrap())
+                .collect()
+        };
+        let py_uncommitted_batches = unsafe { PyObject::from_borrowed_ptr(py, uncommitted_batches_ptr) };
+        let uncommitted_batches: Vec<Batch> = if py_uncommitted_batches == Python::None(py) {
+            Vec::new()
+        } else {
+            py_uncommitted_batches
+                .extract::<PyList>(py)
+                .expect("Failed to extract PyList from uncommitted_batches")
+                .iter(py)
+                .map(|pyobj| pyobj.extract::<Batch>(py).unwrap())
+                .collect()
+        };
+        let chain_head = if chain_head == Python::None(py) {
+            None
+        } else {
+            Some(chain_head.extract(py)
+                .expect("Got a new chain head that wasn't a BlockWrapper"))
+        };
+        (chain_head, committed_batches, uncommitted_batches)
     };
 
     unsafe {
