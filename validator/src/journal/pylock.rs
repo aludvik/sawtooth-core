@@ -31,7 +31,7 @@ impl PyLock {
         let py = gil_guard.python();
         self.py_lock
             .call_method(py, "acquire", NoArgs, None)
-            .expect("Unable to call release on python lock");
+            .expect("Unable to call acquire on python lock");
 
         let py_release_fn = self.py_lock
             .getattr(py, "release")
