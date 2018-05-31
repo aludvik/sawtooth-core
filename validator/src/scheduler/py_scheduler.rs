@@ -124,7 +124,8 @@ impl Scheduler for PyScheduler {
                     let batch_result: cpython::PyObject = self.py_scheduler
                         .call_method(py, "get_batch_execution_result", (id,), None)
                         .expect("No method get_batch_execution_result on python scheduler");
-                    if batch_result.is_true(py).unwrap() {
+
+                    if batch_result != cpython::Python::None(py) {
                         let result = batch_result.extract::<BatchResult>(py).unwrap();
 
                         let txn_results: Vec<TransactionResult> = self.py_scheduler
