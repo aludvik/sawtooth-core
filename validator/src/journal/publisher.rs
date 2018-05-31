@@ -16,6 +16,7 @@
  */
 
 use batch::Batch;
+use block::Block;
 
 use cpython::{ObjectProtocol, PyObject, Python, NoArgs, PyList, PyDict, PyClone};
 use std::collections::{HashSet, VecDeque};
@@ -29,7 +30,6 @@ use std::time::{Instant, Duration};
 
 use execution::execution_platform::ExecutionPlatform;
 use execution::py_executor::PyExecutor;
-use journal::block_wrapper::BlockWrapper;
 use journal::candidate_block::{FinalizeBlockResult, CandidateBlock, CandidateBlockError};
 use journal::chain_commit_state::TransactionCommitCache;
 use journal::pylock::PyLock;
@@ -360,7 +360,7 @@ impl BlockPublisher {
     fn publish_block(&mut self, block: PyObject, injected_batches: Vec<String>) {
         let gil = Python::acquire_gil();
         let py = gil.python();
-        let block: BlockWrapper = block.extract(py)
+        let block: Block = block.extract(py)
             .expect("Got block to publish that wasn't a BlockWrapper");
 
         let kwargs = PyDict::new(py);
