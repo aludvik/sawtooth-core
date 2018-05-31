@@ -69,7 +69,7 @@ class IncomingBatchSender(OwnedPointer):
         self._ptr = sender_ptr
 
     def send(self, item):
-        res = LIBRARY.call(
+        res = PY_LIBRARY.call(
             "incoming_batch_sender_send",
             self._ptr,
             ctypes.py_object(item))
