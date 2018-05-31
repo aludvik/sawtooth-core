@@ -36,21 +36,21 @@ pub enum ErrorCode {
 pub extern "C" fn incoming_batch_sender_send(sender_ptr: *mut c_void, pyobj_ptr: *mut py_ffi::PyObject) -> ErrorCode {
     if sender_ptr.is_null() { return ErrorCode::NullPointerProvided; }
 
-    let batch: Batch = {
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-        let pyobj = unsafe { PyObject::from_borrowed_ptr(py, pyobj_ptr) };
+    let gil = Python::acquire_gil();
+    let py = gil.python();
+    let pyobj = unsafe { PyObject::from_borrowed_ptr(py, pyobj_ptr) };
 
-        match pyobj.extract(py) {
-            Ok(batch) => batch,
-            Err(_) => { return ErrorCode::InvalidInput; },
-        }
+    let batch: Batch = match pyobj.extract(py) {
+        Ok(batch) => batch,
+        Err(_) => { return ErrorCode::InvalidInput; },
     };
 
-    match unsafe { (*(sender_ptr as *mut IncomingBatchSender)).put(batch) } {
-        Ok(()) => ErrorCode::Success,
-        Err(_) => ErrorCode::Disconnected,
-    }
+    py.allow_threads(move || {
+        match unsafe { (*(sender_ptr as *mut IncomingBatchSender)).put(batch) } {
+            Ok(()) => ErrorCode::Success,
+            Err(_) => ErrorCode::Disconnected,
+        }
+    })
 }
 
 #[no_mangle]
