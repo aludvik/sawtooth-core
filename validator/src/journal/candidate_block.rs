@@ -423,7 +423,7 @@ impl CandidateBlock {
                 .len(py) == 0
         {
             debug!("Abandoning block, no batches added");
-            return self.build_result(None, self.pending_batches.clone());
+            return self.build_result(None, pending_batches);
         }
         let block_header = builder
             .getattr(py, "block_header")
