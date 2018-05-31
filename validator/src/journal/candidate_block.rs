@@ -21,6 +21,7 @@ use cpython;
 use cpython::ObjectProtocol;
 use cpython::PyClone;
 use cpython::ToPyObject;
+use cpython::Python;
 
 use batch::Batch;
 use transaction::Transaction;
@@ -93,7 +94,8 @@ impl CandidateBlock {
     }
 
     pub fn previous_block_id(&self) -> String {
-        let py = unsafe { cpython::Python::assume_gil_acquired() };
+        let gil = cpython::Python::acquire_gil();
+        let py = gil.python();
         self.block_builder
             .getattr(py, "previous_block_id")
             .expect("BlockBuilder has no attribute 'previous_block_id'")
@@ -146,7 +148,8 @@ impl CandidateBlock {
         committed_txn_cache: &TransactionCommitCache,
     ) -> bool {
         committed_txn_cache.contains(txn.header_signature.as_str()) || {
-            let py = unsafe { cpython::Python::assume_gil_acquired() };
+            let gil = cpython::Python::acquire_gil();
+            let py = gil.python();
             self.block_store
                 .call_method(py, "has_batch", (txn.header_signature.as_str(),), None)
                 .expect("Blockstore has no method 'has_batch'")
@@ -158,7 +161,8 @@ impl CandidateBlock {
     fn batch_is_already_committed(&self, batch: &Batch) -> bool {
         self.pending_batch_ids
             .contains(batch.header_signature.as_str()) || {
-            let py = unsafe { cpython::Python::assume_gil_acquired() };
+            let gil = cpython::Python::acquire_gil();
+            let py = gil.python();
             self.block_store
                 .call_method(py, "has_batch", (batch.header_signature.as_str(),), None)
                 .expect("Blockstore has no method 'has_batch'")
@@ -172,7 +176,8 @@ impl CandidateBlock {
         poller: F,
     ) -> Vec<Batch> {
         let mut batches = vec![];
-        let py = unsafe { cpython::Python::assume_gil_acquired() };
+        let gil = cpython::Python::acquire_gil();
+        let py = gil.python();
         for injector in self.batch_injectors.iter() {
             let inject_list = poller(injector);
             if !inject_list.is_empty() {
@@ -190,7 +195,8 @@ impl CandidateBlock {
     pub fn add_batch(&mut self, batch: Batch) {
         let batch_header_signature = batch.header_signature.clone();
 
-        let py = unsafe { cpython::Python::assume_gil_acquired() };
+        let gil = cpython::Python::acquire_gil();
+        let py = gil.python();
         if batch.trace {
             debug!(
                 "TRACE {}: {}",
@@ -282,7 +288,8 @@ impl CandidateBlock {
     }
 
     pub fn sign_block(&self, block_builder: &cpython::PyObject) {
-        let py = unsafe { cpython::Python::assume_gil_acquired() };
+        let gil = cpython::Python::acquire_gil();
+        let py = gil.python();
         let header_bytes = block_builder
             .getattr(py, "block_header")
             .expect("BlockBuilder has no attribute 'block_header'")
@@ -315,7 +322,8 @@ impl CandidateBlock {
         if !(force || !self.pending_batches.is_empty()) {
             return Err(CandidateBlockError::NoPendingBatchesRemaining);
         }
-        let py = unsafe { cpython::Python::assume_gil_acquired() };
+        let gil = Python::acquire_gil();
+        let py = gil.python();
         if !self.check_publish_block(py, &self.block_builder) {
             return Err(CandidateBlockError::ConsensusNotReady);
         }
