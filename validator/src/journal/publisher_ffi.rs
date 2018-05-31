@@ -177,11 +177,12 @@ pub extern "C" fn block_publisher_drop(publisher: *mut c_void) -> ErrorCode {
 #[no_mangle]
 pub extern "C" fn block_publisher_start(publisher: *mut c_void) -> ErrorCode {
     check_null!(publisher);
-    unsafe {
-        let publisher: Arc<Mutex<BlockPublisher>> = Arc::from_raw(publisher as *mut Mutex<BlockPublisher>);
-        BlockPublisher::start(Arc::clone(&publisher));
-        Arc::into_raw(publisher);
-    }
+    let publisher: Arc<Mutex<BlockPublisher>> = unsafe {
+         Arc::from_raw(publisher as *mut Mutex<BlockPublisher>)
+    };
+    let publisher_clone = Arc::clone(&publisher);
+    BlockPublisher::start(publisher_clone);
+    Arc::into_raw(publisher);
     ErrorCode::Success
 }
 
