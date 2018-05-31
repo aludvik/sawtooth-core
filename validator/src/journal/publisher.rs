@@ -336,14 +336,13 @@ impl BlockPublisher {
             option_result = Some(candidate_block.finalize(force));
         }
 
-        self.candidate_block = None;
-
         if let Some(result) = option_result {
             match result {
                 Ok(finalize_result) => {
                     self.pending_batches.update(
                         finalize_result.remaining_batches.clone(),
                         finalize_result.last_batch.clone());
+                    self.candidate_block = None;
                     Ok(finalize_result)
                 },
                 Err(err) => Err(match err {
@@ -379,10 +378,17 @@ impl BlockPublisher {
         state_view: PyObject,
         public_key: String,
     ) -> PyObject {
+        let kwargs = PyDict::new(py);
+        kwargs.set_item(py, "block_cache", self.block_cache.clone_ref(py)).unwrap();
+        kwargs.set_item(py, "state_view_factory", self.state_view_factory.clone_ref(py)).unwrap();
+        kwargs.set_item(py, "batch_publisher", self.batch_publisher.clone_ref(py)).unwrap();
+        kwargs.set_item(py, "data_dir", self.data_dir.clone_ref(py)).unwrap();
+        kwargs.set_item(py, "config_dir", self.config_dir.clone_ref(py)).unwrap();
+        kwargs.set_item(py, "validator_id", public_key.clone()).unwrap();
         let consensus_block_publisher = self.consensus_factory
             .call_method(py, "get_configured_consensus_module", (block.header_signature(), state_view), None)
             .expect("ConsensusFactory has no method get_configured_consensus_module")
-            .call_method(py, "BlockPublisher", (self.block_cache.clone_ref(py), self.state_view_factory.clone_ref(py), self.batch_publisher.clone_ref(py), self.data_dir.clone_ref(py), self.config_dir.clone_ref(py), public_key.clone()), None);
+            .call_method(py, "BlockPublisher", NoArgs, Some(&kwargs));
         consensus_block_publisher.unwrap()
     }
 
@@ -469,14 +475,11 @@ impl BlockPublisher {
 
         if self.is_building_block() {
             self.chain_head_lock.lock();
-            match self.finalize_block(force) {
-                Ok(result) => if result.block.is_some() {
+            if let Ok(result) = self.finalize_block(force) {
+                if result.block.is_some() {
                     self.publish_block(result.block.unwrap(), result.injected_batch_ids);
                 } else {
                     debug!("FinalizeBlockResult.block was None");
-                },
-                Err(err) => {
-                    error!("Error finalizing block: {:?}", err);
                 }
             }
         }
