@@ -23,6 +23,8 @@ pub mod block_wrapper;
 pub mod block_wrapper_ffi;
 mod candidate_block;
 mod chain_commit_state;
+pub mod chain_head_lock;
+pub mod chain_head_lock_ffi;
 pub mod incoming_batch_queue_ffi;
 pub mod publisher;
 pub mod publisher_ffi;

@@ -268,8 +268,6 @@ class Validator(object):
             state_view_factory=state_view_factory,
             signer=identity_signer)
 
-        chain_head_lock = threading.RLock()
-
         block_publisher = BlockPublisher(
             transaction_executor=transaction_executor,
             block_cache=block_cache,
@@ -278,7 +276,6 @@ class Validator(object):
             block_sender=block_sender,
             batch_sender=batch_sender,
             chain_head=block_store.chain_head,
-            chain_head_lock=chain_head_lock,
             identity_signer=identity_signer,
             data_dir=data_dir,
             config_dir=config_dir,

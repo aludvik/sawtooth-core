@@ -164,7 +164,8 @@ class ChainController(object):
 
     def start(self):
         self._set_chain_head_from_block_store()
-        self._notify_on_chain_updated(self._chain_head)
+        with self._chain_head_lock as publisher:
+            publisher.notify_on_chain_updated(self._chain_head)
 
         self._chain_thread = _ChainThread(
             chain_controller=self,
@@ -222,7 +223,7 @@ class ChainController(object):
 
                 # If the head is to be updated to the new block.
                 elif commit_new_block:
-                    with self._chain_head_lock:
+                    with self._chain_head_lock as publisher:
                         self._chain_head = new_block
 
                         # update the the block store to have the new chain
@@ -246,7 +247,7 @@ class ChainController(object):
                             self._chain_head.block_num)
 
                         # tell the BlockPublisher else the chain is updated
-                        self._notify_on_chain_updated(
+                        publisher.notify_on_chain_updated(
                             self._chain_head,
                             result.committed_batches,
                             result.uncommitted_batches)
@@ -331,7 +332,8 @@ class ChainController(object):
                         block.identifier)
                 self._block_store.update_chain([block])
                 self._chain_head = block
-                self._notify_on_chain_updated(self._chain_head)
+                with self._chain_head_lock as publisher:
+                    publisher.notify_on_chain_updated(self._chain_head)
 
         else:
             LOGGER.warning("Cannot set initial chain head, this is not a "

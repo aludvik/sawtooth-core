@@ -86,6 +86,65 @@ class IncomingBatchSender(OwnedPointer):
             raise ValueError("An unknown error occurred: {}".format(res))
 
 
+class ChainHeadLock_ErrorCode(IntEnum):
+    Success = 0
+    NullPointerProvided = 0x01
+
+
+class ChainHeadLock(OwnedPointer):
+    def __init__(self, chain_head_lock_ptr):
+        super().__init__("chain_head_lock_drop")
+        self._ptr = chain_head_lock_ptr
+        self._guard = None
+
+    def __enter__(self):
+        guard_ptr = ctypes.c_void_p()
+        res = LIBRARY.call(
+            "chain_head_lock_lock",
+            self._ptr,
+            ctypes.byref(guard_ptr))
+
+        if res == ChainHeadLock_ErrorCode.Success:
+            self._guard = ChainHeadGuard(guard_ptr)
+            return self._guard
+        elif res == ChainHeadLock_ErrorCode.NullPointerProvided:
+            raise TypeError("Provided null pointer(s)")
+        else:
+            raise ValueError("An unknown error occurred: {}".format(res))
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        res = LIBRARY.call(
+            "chain_head_guard_drop",
+            self._guard.pointer)
+
+        if res == ChainHeadLock_ErrorCode.Success:
+            return
+        elif res == ChainHeadLock_ErrorCode.NullPointerProvided:
+            raise TypeError("Provided null pointer(s)")
+        else:
+            raise ValueError("An unknown error occurred: {}".format(res))
+
+
+class ChainHeadGuard:
+    def __init__(self, guard_ptr):
+        self.pointer = guard_ptr
+
+    def notify_on_chain_updated(self, chain_head, committed_batches=None, uncommitted_batches=None):
+        res = LIBRARY.call(
+            "chain_head_guard_on_chain_updated",
+            self.pointer,
+            ctypes.py_object(chain_head),
+            ctypes.py_object(committed_batches),
+            ctypes.py_object(uncommitted_batches))
+
+        if res == ChainHeadLock_ErrorCode.Success:
+            return
+        elif res == ChainHeadLock_ErrorCode.NullPointerProvided:
+            raise TypeError("Provided null pointer(s)")
+        else:
+            raise ValueError("An unknown error occurred: {}".format(res))
+
+
 class BlockPublisher_ErrorCode(IntEnum):
     Success = 0
     NullPointerProvided = 0x01
@@ -106,7 +165,6 @@ class BlockPublisher(OwnedPointer):
                  block_sender,
                  batch_sender,
                  chain_head,
-                 chain_head_lock,
                  identity_signer,
                  data_dir,
                  config_dir,
@@ -138,8 +196,6 @@ class BlockPublisher(OwnedPointer):
         """
         super(BlockPublisher, self).__init__('block_publisher_drop')
 
-        self._chain_head_lock = chain_head_lock
-
         self._to_exception(PY_LIBRARY.call(
             'block_publisher_new',
             ctypes.py_object(transaction_executor),
@@ -149,7 +205,6 @@ class BlockPublisher(OwnedPointer):
             ctypes.py_object(block_sender),
             ctypes.py_object(batch_sender),
             ctypes.py_object(chain_head),
-            ctypes.py_object(chain_head_lock),
             ctypes.py_object(identity_signer),
             ctypes.py_object(data_dir),
             ctypes.py_object(config_dir),
@@ -205,7 +260,9 @@ class BlockPublisher(OwnedPointer):
 
     @property
     def chain_head_lock(self):
-        return self._chain_head_lock
+        chain_head_lock_ptr = ctypes.c_void_p()
+        self._call('chain_head_lock', ctypes.byref(chain_head_lock_ptr))
+        return ChainHeadLock(chain_head_lock_ptr)
 
     def on_chain_updated(self, chain_head,
                          committed_batches=None,
