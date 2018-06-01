@@ -224,6 +224,45 @@ pub extern "C" fn block_publisher_batch_sender(
     ErrorCode::Success
 }
 
+pub fn convert_on_chain_updated_args(
+    py: Python,
+    chain_head_ptr: *mut py_ffi::PyObject,
+    committed_batches_ptr: *mut py_ffi::PyObject,
+    uncommitted_batches_ptr: *mut py_ffi::PyObject
+) -> (Option<BlockWrapper>,  Vec<Batch>,  Vec<Batch>) {
+    let chain_head = unsafe { PyObject::from_borrowed_ptr(py, chain_head_ptr) };
+    let py_committed_batches = unsafe { PyObject::from_borrowed_ptr(py, committed_batches_ptr) };
+    let committed_batches: Vec<Batch> = if py_committed_batches == Python::None(py) {
+        Vec::new()
+    } else {
+        py_committed_batches
+            .extract::<PyList>(py)
+            .expect("Failed to extract PyList from committed_batches")
+            .iter(py)
+            .map(|pyobj| pyobj.extract::<Batch>(py).unwrap())
+            .collect()
+    };
+    let py_uncommitted_batches = unsafe { PyObject::from_borrowed_ptr(py, uncommitted_batches_ptr) };
+    let uncommitted_batches: Vec<Batch> = if py_uncommitted_batches == Python::None(py) {
+        Vec::new()
+    } else {
+        py_uncommitted_batches
+            .extract::<PyList>(py)
+            .expect("Failed to extract PyList from uncommitted_batches")
+            .iter(py)
+            .map(|pyobj| pyobj.extract::<Batch>(py).unwrap())
+            .collect()
+    };
+    let chain_head = if chain_head == Python::None(py) {
+        None
+    } else {
+        Some(chain_head.extract(py)
+            .expect("Got a new chain head that wasn't a BlockWrapper"))
+    };
+
+    (chain_head, committed_batches, uncommitted_batches)
+}
+
 #[no_mangle]
 pub extern "C" fn block_publisher_on_chain_updated(
     publisher: *mut c_void,
@@ -231,49 +270,34 @@ pub extern "C" fn block_publisher_on_chain_updated(
     committed_batches_ptr: *mut py_ffi::PyObject,
     uncommitted_batches_ptr: *mut py_ffi::PyObject
 ) -> ErrorCode {
-    check_null!(publisher);
-    let (chain_head, committed_batches, uncommitted_batches) = {
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-        let chain_head = unsafe { PyObject::from_borrowed_ptr(py, chain_head_ptr) };
-        let py_committed_batches = unsafe { PyObject::from_borrowed_ptr(py, committed_batches_ptr) };
-        let committed_batches: Vec<Batch> = if py_committed_batches == Python::None(py) {
-            Vec::new()
-        } else {
-            py_committed_batches
-                .extract::<PyList>(py)
-                .expect("Failed to extract PyList from committed_batches")
-                .iter(py)
-                .map(|pyobj| pyobj.extract::<Batch>(py).unwrap())
-                .collect()
-        };
-        let py_uncommitted_batches = unsafe { PyObject::from_borrowed_ptr(py, uncommitted_batches_ptr) };
-        let uncommitted_batches: Vec<Batch> = if py_uncommitted_batches == Python::None(py) {
-            Vec::new()
-        } else {
-            py_uncommitted_batches
-                .extract::<PyList>(py)
-                .expect("Failed to extract PyList from uncommitted_batches")
-                .iter(py)
-                .map(|pyobj| pyobj.extract::<Batch>(py).unwrap())
-                .collect()
-        };
-        let chain_head = if chain_head == Python::None(py) {
-            None
-        } else {
-            Some(chain_head.extract(py)
-                .expect("Got a new chain head that wasn't a BlockWrapper"))
-        };
-        (chain_head, committed_batches, uncommitted_batches)
-    };
+    check_null!(
+        publisher,
+        chain_head_ptr,
+        committed_batches_ptr,
+        uncommitted_batches_ptr
+    );
+    let gil = Python::acquire_gil();
+    let py = gil.python();
 
-    unsafe {
-        (*(publisher as *mut Mutex<BlockPublisher>)).lock().unwrap().on_chain_updated(
+    let (chain_head, committed_batches, uncommitted_batches) = convert_on_chain_updated_args(
+        py,
+        chain_head_ptr,
+        committed_batches_ptr,
+        uncommitted_batches_ptr,
+    );
+
+    let publisher: Arc<Mutex<BlockPublisher>> = unsafe {
+         Arc::from_raw(publisher as *mut Mutex<BlockPublisher>)
+    };
+    let publisher_clone = Arc::clone(&publisher);
+    py.allow_threads(move || {
+        publisher_clone.lock().unwrap().on_chain_updated(
             chain_head,
             committed_batches,
             uncommitted_batches,
-        )
-    }
+        );
+    });
+    Arc::into_raw(publisher);
     ErrorCode::Success
 }
 
