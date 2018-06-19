@@ -184,6 +184,50 @@ impl DevmodeService {
 
         time::Duration::from_secs(wait_time)
     }
+
+    fn get_fork_base(&mut self, current_fork_head: Block, new_fork_head: Block) -> ForkBase {
+        let mut new_fork_base = new_fork_head;
+        let mut current_fork_base = current_fork_head;
+
+        // Go to common height
+        while new_fork_base.block_num > current_fork_base.block_num {
+            new_fork_base = self.get_block(new_fork_base.previous_id);
+        }
+
+        while current_fork_base.block_num > new_fork_base.block_num {
+            current_fork_base = self.get_block(current_fork_base.previous_id);
+        }
+
+        while new_fork_base.previous_id != current_fork_base.previous_id {
+            new_fork_base = self.get_block(new_fork_base.block_id);
+            current_fork_base = self.get_block(current_fork_base.block_id);
+        }
+
+        ForkBase {
+            new: new_fork_base,
+            current: current_fork_base,
+        }
+    }
+}
+
+pub struct ForkBase {
+    pub new: Block,
+    pub current: Block,
+}
+
+impl ForkBase {
+    pub fn resolve(&self) -> ForkResolution {
+        if self.new.block_id > self.current.block_id {
+            ForkResolution::New
+        } else {
+            ForkResolution::Current
+        }
+    }
+}
+
+pub enum ForkResolution {
+    New,
+    Current,
 }
 
 pub struct DevmodeEngine {
@@ -253,15 +297,16 @@ impl Engine for DevmodeEngine {
                             );
 
                             // Advance the chain if possible.
-                            if block.block_num > chain_head.block_num
-                                || (block.block_num == chain_head.block_num
-                                    && block.block_id > chain_head.block_id)
-                            {
-                                info!("Committing {:?}", block);
-                                service.commit_block(block_id);
-                            } else {
-                                info!("Ignoring {:?}", block);
-                                service.ignore_block(block_id);
+                            let fork_base = service.get_fork_base(chain_head, block.clone());
+                            match fork_base.resolve() {
+                                ForkResolution::Current => {
+                                    info!("Ignoring {:?}", block);
+                                    service.ignore_block(block_id);
+                                },
+                                ForkResolution::New => {
+                                    info!("Committing {:?}", block);
+                                    service.commit_block(block_id);
+                                }
                             }
                         }
 
