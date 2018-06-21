@@ -85,12 +85,12 @@ services:
     stop_signal: SIGKILL
 
   poet-0:
-    image: poet-python-local:$ISOLATION_ID
+    image: poet-engine-local:$ISOLATION_ID
     volumes:
       - $SAWTOOTH_CORE:/project/sawtooth-core
       - sawtooth-keys-0:/etc/sawtooth/keys
       - sawtooth-db-0:/var/lib/sawtooth
-    command: poet-python --connect tcp://validator-0:5050 --component tcp://validator-0:4004 -vv
+    command: poet-engine --connect tcp://validator-0:5050 --component tcp://validator-0:4004 -vv
     stop_signal: SIGKILL
     environment:
       PYTHONPATH: "/project/sawtooth-core/sdk/python:\
