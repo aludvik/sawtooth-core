@@ -15,12 +15,22 @@
 
 version: "2.1"
 
+volumes:
+  sawtooth-keys-0:
+  sawtooth-db-0:
+  sawtooth-keys-1:
+  sawtooth-db-1:
+  sawtooth-keys-2:
+  sawtooth-db-2:
+
 services:
 
   validator-0:
     image: sawtooth-validator:$ISOLATION_ID
     volumes:
       - $SAWTOOTH_CORE:/project/sawtooth-core
+      - sawtooth-keys-0:/etc/sawtooth/keys
+      - sawtooth-db-0:/var/lib/sawtooth
     expose:
       - 4004
       - 8800
@@ -44,17 +54,21 @@ services:
             --endpoint tcp://validator-0:8800 \
             --bind component:tcp://eth0:4004 \
             --bind network:tcp://eth0:8800 \
+            --bind consensus:tcp://eth0:5050 \
     \""
     environment:
       PYTHONPATH: "/project/sawtooth-core/consensus/poet/common:\
         /project/sawtooth-core/consensus/poet/simulator:\
-        /project/sawtooth-core/consensus/poet/core"
+        /project/sawtooth-core/consensus/poet/core:\
+        /project/sawtooth-core/sdk/python/"
     stop_signal: SIGKILL
 
   validator-1:
     image: sawtooth-validator:$ISOLATION_ID
     volumes:
       - $SAWTOOTH_CORE:/project/sawtooth-core
+      - sawtooth-keys-1:/etc/sawtooth/keys
+      - sawtooth-db-1:/var/lib/sawtooth
     expose:
       - 4004
       - 8800
@@ -67,6 +81,7 @@ services:
           --peers tcp://validator-0:8800 \
           --bind component:tcp://eth0:4004 \
           --bind network:tcp://eth0:8800 \
+          --bind consensus:tcp://eth0:5050 \
     \""
     environment:
       PYTHONPATH: "/project/sawtooth-core/consensus/poet/common:\
@@ -78,6 +93,8 @@ services:
     image: sawtooth-validator:$ISOLATION_ID
     volumes:
       - $SAWTOOTH_CORE:/project/sawtooth-core
+      - sawtooth-keys-2:/etc/sawtooth/keys
+      - sawtooth-db-2:/var/lib/sawtooth
     expose:
       - 4004
       - 8800
@@ -91,12 +108,49 @@ services:
           --peers tcp://validator-0:8800,tcp://validator-1:8800
           --bind component:tcp://eth0:4004 \
           --bind network:tcp://eth0:8800 \
+          --bind consensus:tcp://eth0:5050 \
     \""
     environment:
       PYTHONPATH: "/project/sawtooth-core/consensus/poet/common:\
         /project/sawtooth-core/consensus/poet/simulator:\
         /project/sawtooth-core/consensus/poet/core"
     stop_signal: SIGKILL
+
+  poet-0:
+    image: poet-python-local:$ISOLATION_ID
+    volumes:
+      - $SAWTOOTH_CORE:/project/sawtooth-core
+      - sawtooth-keys-0:/etc/sawtooth/keys
+      - sawtooth-db-0:/var/lib/sawtooth
+    command: poet-python --connect tcp://validator-0:5050 --component tcp://validator-0:4004 -vv
+    stop_signal: SIGKILL
+    environment:
+      PYTHONPATH: "/project/sawtooth-core/sdk/python:\
+        /project/sawtooth-core/signing:"
+
+  poet-1:
+    image: poet-python-local:$ISOLATION_ID
+    volumes:
+      - $SAWTOOTH_CORE:/project/sawtooth-core
+      - sawtooth-keys-1:/etc/sawtooth/keys
+      - sawtooth-db-1:/var/lib/sawtooth
+    command: poet-python --connect tcp://validator-1:5050 --component tcp://validator-1:4004 -vv
+    stop_signal: SIGKILL
+    environment:
+      PYTHONPATH: "/project/sawtooth-core/sdk/python:\
+        /project/sawtooth-core/signing:"
+
+  poet-2:
+    image: poet-python-local:$ISOLATION_ID
+    volumes:
+      - $SAWTOOTH_CORE:/project/sawtooth-core
+      - sawtooth-keys-2:/etc/sawtooth/keys
+      - sawtooth-db-2:/var/lib/sawtooth
+    command: poet-python --connect tcp://validator-2:5050 --component tcp://validator-2:4004 -vv
+    stop_signal: SIGKILL
+    environment:
+      PYTHONPATH: "/project/sawtooth-core/sdk/python:\
+        /project/sawtooth-core/signing:"
 
   rest-api-0:
     image: sawtooth-rest-api:$ISOLATION_ID
