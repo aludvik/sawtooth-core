@@ -34,7 +34,9 @@ class ConsensusNotifier:
             message_type,
             message.SerializeToString())
         for future in futures:
+            LOGGER.warn("Waiting for future result %s", future)
             future.result()
+            LOGGER.warn("Got future result %s", future)
 
     def notify_peer_connected(self, peer_id):
         """A new peer was added"""
@@ -61,6 +63,7 @@ class ConsensusNotifier:
 
     def notify_block_new(self, block):
         """A new block was received and passed initial consensus validation"""
+        LOGGER.warn("SENDING BLOCK NEW NOTIFICATION (%s)", block)
         summary = hashlib.sha256()
         for batch in block.batches:
             summary.update(batch.header_signature.encode())
@@ -74,6 +77,7 @@ class ConsensusNotifier:
                     block_num=block.block_num,
                     payload=block.consensus,
                     summary=summary.digest())))
+        LOGGER.warn("BLOCK NEW NOTIFICATION SENT")
 
     def notify_block_valid(self, block_id):
         """This block can be committed successfully"""
