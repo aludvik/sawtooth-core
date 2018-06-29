@@ -24,8 +24,7 @@ use cpython::{PyClone, PyList, PyObject, Python};
 
 use batch::Batch;
 use journal::block_wrapper::BlockWrapper;
-use journal::publisher::{BlockPublisher, FinalizeBlockError, IncomingBatchSender,
-                         InitializeBlockError};
+use journal::publisher::{BlockPublisher, FinalizeBlockError, InitializeBlockError, IncomingBatchSender};
 
 #[repr(u32)]
 #[derive(Debug)]
@@ -378,11 +377,7 @@ pub extern "C" fn block_publisher_on_chain_updated(
 
     let mut publisher = unsafe { (*(publisher as *mut BlockPublisher)).clone() };
     py.allow_threads(move || {
-        publisher.publisher.on_chain_updated_internal(
-            chain_head,
-            committed_batches,
-            uncommitted_batches,
-        )
+        publisher.on_chain_updated(chain_head, committed_batches, uncommitted_batches)
     });
 
     ErrorCode::Success

@@ -66,7 +66,7 @@ pub enum StartError {
 }
 
 pub struct BlockPublisherState {
-    pub transaction_executor: Box<ExecutionPlatform>,
+    transaction_executor: Box<ExecutionPlatform>,
     pub chain_head: Option<BlockWrapper>,
     pub candidate_block: Option<CandidateBlock>,
     pub pending_batches: PendingBatchesPool,
@@ -92,123 +92,80 @@ impl BlockPublisherState {
         let optional_block_id = candidate_block.map(|cb| cb.previous_block_id());
         optional_block_id
     }
-}
 
-pub struct SyncBlockPublisher {
-    pub state: Arc<RwLock<BlockPublisherState>>,
-
-    batch_observers: Vec<PyObject>,
-    batch_injector_factory: PyObject,
-    block_wrapper_class: PyObject,
-    block_header_class: PyObject,
-    block_builder_class: PyObject,
-    settings_view_class: PyObject,
-    block_cache: PyObject,
-    state_view_factory: PyObject,
-    settings_cache: PyObject,
-    block_sender: PyObject,
-    batch_publisher: PyObject,
-    identity_signer: PyObject,
-    data_dir: PyObject,
-    config_dir: PyObject,
-    permission_verifier: PyObject,
-
-    exit: Arc<Exit>,
-}
-
-impl Clone for SyncBlockPublisher {
-    fn clone(&self) -> Self {
-        let state = Arc::clone(&self.state);
-
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-
-        SyncBlockPublisher {
-            state,
-            batch_observers: self.batch_observers
-                .iter()
-                .map(|i| i.clone_ref(py))
-                .collect(),
-            batch_injector_factory: self.batch_injector_factory.clone_ref(py),
-            block_wrapper_class: self.block_wrapper_class.clone_ref(py),
-            block_header_class: self.block_header_class.clone_ref(py),
-            block_builder_class: self.block_builder_class.clone_ref(py),
-            settings_view_class: self.settings_view_class.clone_ref(py),
-            block_cache: self.block_cache.clone_ref(py),
-            state_view_factory: self.state_view_factory.clone_ref(py),
-            settings_cache: self.settings_cache.clone_ref(py),
-            block_sender: self.block_sender.clone_ref(py),
-            batch_publisher: self.batch_publisher.clone_ref(py),
-            identity_signer: self.identity_signer.clone_ref(py),
-            data_dir: self.data_dir.clone_ref(py),
-            config_dir: self.config_dir.clone_ref(py),
-            permission_verifier: self.permission_verifier.clone_ref(py),
-            exit: Arc::clone(&self.exit),
-        }
-    }
-}
-
-impl SyncBlockPublisher {
     pub fn on_chain_updated(
-        &self,
-        state: &mut BlockPublisherState,
+        &mut self,
+        batch_injector_factory: &PyObject,
+        block_cache: &PyObject,
+        identity_signer: &PyObject,
+        settings_cache: &PyObject,
+        state_view_factory: &PyObject,
+        block_wrapper_class: &PyObject,
+        block_header_class: &PyObject,
+        block_builder_class: &PyObject,
+        settings_view_class: &PyObject,
         chain_head: BlockWrapper,
         committed_batches: Vec<Batch>,
         uncommitted_batches: Vec<Batch>,
     ) {
         info!("Now building on top of block, {}", chain_head);
         let batches_len = chain_head.block.batches.len();
-        state.chain_head = Some(chain_head);
+        self.chain_head = Some(chain_head);
         let mut previous_block_id = None;
-        if self.is_building_block(state) {
-            previous_block_id = state
+        if self.is_building_block() {
+            previous_block_id = self
                 .get_previous_block_id()
-                .map(|block_id| self.get_block_checked(block_id.as_str()).ok())
+                .map(|block_id| Self::get_block_checked(
+                    block_cache,
+                    block_id.as_str()
+                ).ok())
                 .unwrap_or(None);
-            self.cancel_block(state);
+            self.cancel_block().expect("Block was building but cancelling faied")
         }
 
-        state.pending_batches.update_limit(batches_len);
-        state
-            .pending_batches
-            .rebuild(Some(committed_batches), Some(uncommitted_batches));
+        self.pending_batches.update_limit(batches_len);
+        self.pending_batches.rebuild(
+            Some(committed_batches), Some(uncommitted_batches)
+        );
 
         if let Some(block_id) = previous_block_id {
-            self.initialize_block(state, &block_id)
-                .expect("Unable to initialize block after canceling");
+            self.initialize_block(
+                batch_injector_factory,
+                block_cache,
+                identity_signer,
+                settings_cache,
+                state_view_factory,
+                block_wrapper_class,
+                block_header_class,
+                block_builder_class,
+                settings_view_class,
+                &block_id
+            ).expect("Unable to initialize block after canceling");
         }
     }
 
-    pub fn on_chain_updated_internal(
-        &mut self,
-        chain_head: BlockWrapper,
-        committed_batches: Vec<Batch>,
-        uncommitted_batches: Vec<Batch>,
-    ) {
-        let mut state = self.state
-            .write()
-            .expect("RwLock was poisoned during a write lock");
-        self.on_chain_updated(
-            &mut state,
-            chain_head,
-            committed_batches,
-            uncommitted_batches,
-        );
-    }
-
-    fn get_state_view(&self, py: Python, previous_block: &BlockWrapper) -> PyObject {
-        self.block_wrapper_class
+    fn get_state_view(
+        py: Python,
+        state_view_factory: &PyObject,
+        block_wrapper_class: &PyObject,
+        previous_block: &BlockWrapper
+    ) -> PyObject {
+        block_wrapper_class
             .call_method(
                 py,
                 "state_view_for_block",
-                (previous_block, &self.state_view_factory),
+                (previous_block, state_view_factory),
                 None,
             )
             .expect("BlockWrapper, unable to call state_view_for_block")
     }
 
-    fn load_injectors(&self, py: Python, block_id: &str) -> Vec<PyObject> {
-        self.batch_injector_factory
+    fn load_injectors(
+        py: Python,
+        batch_injector_factory: &PyObject,
+        block_id: &str,
+    ) -> Vec<PyObject> {
+        batch_injector_factory
             .call_method(py, "create_injectors", (block_id,), None)
             .expect("BatchInjectorFactory has no method 'create_injectors'")
             .extract::<PyList>(py)
@@ -218,11 +175,19 @@ impl SyncBlockPublisher {
     }
 
     fn initialize_block(
-        &self,
-        state: &mut BlockPublisherState,
+        &mut self,
+        batch_injector_factory: &PyObject,
+        block_cache: &PyObject,
+        identity_signer: &PyObject,
+        settings_cache: &PyObject,
+        state_view_factory: &PyObject,
+        block_wrapper_class: &PyObject,
+        block_header_class: &PyObject,
+        block_builder_class: &PyObject,
+        settings_view_class: &PyObject,
         previous_block: &BlockWrapper,
     ) -> Result<(), InitializeBlockError> {
-        if state.candidate_block.is_some() {
+        if self.candidate_block.is_some() {
             warn!("Tried to initialize block but block already initialized");
             return Err(InitializeBlockError::BlockInProgress);
         }
@@ -232,7 +197,7 @@ impl SyncBlockPublisher {
 
             let kwargs = PyDict::new(py);
             kwargs.set_item(py, "default_value", 0).unwrap();
-            let max_batches = self.settings_cache
+            let max_batches = settings_cache
                 .call_method(
                     py,
                     "get_setting",
@@ -246,9 +211,13 @@ impl SyncBlockPublisher {
                 .extract::<usize>(py)
                 .unwrap();
 
-            let state_view = self.get_state_view(py, previous_block);
-            let public_key = self.get_public_key(py);
-            let batch_injectors = self.load_injectors(py, &previous_block.block.header_signature);
+            let state_view = Self::get_state_view(
+                py, state_view_factory, block_wrapper_class, previous_block
+            );
+            let public_key = Self::get_public_key(identity_signer, py);
+            let batch_injectors = Self::load_injectors(
+                py, batch_injector_factory, &previous_block.block.header_signature
+            );
 
             let kwargs = PyDict::new(py);
             kwargs
@@ -264,26 +233,25 @@ impl SyncBlockPublisher {
             kwargs
                 .set_item(py, "signer_public_key", &public_key)
                 .unwrap();
-            let block_header = self.block_header_class
+            let block_header = block_header_class
                 .call(py, NoArgs, Some(&kwargs))
                 .expect("BlockHeader could not be constructed");
 
-            let block_builder = self.block_builder_class
+            let block_builder = block_builder_class
                 .call(py, (block_header,), None)
                 .expect("BlockBuilder could not be constructed");
 
-            let scheduler = state
-                .transaction_executor
+            let scheduler = self.transaction_executor
                 .create_scheduler(&previous_block.block.state_root_hash)
                 .expect("Failed to create new scheduler");
 
-            let block_store = self.block_cache
+            let block_store = block_cache
                 .getattr(py, "_block_store")
                 .expect("BlockCache has no field _block_store");
 
             let committed_txn_cache = TransactionCommitCache::new(block_store.clone_ref(py));
 
-            let settings_view = self.settings_view_class
+            let settings_view = settings_view_class
                 .call(py, (state_view,), None)
                 .expect("SettingsView could not be constructed");
 
@@ -294,44 +262,54 @@ impl SyncBlockPublisher {
                 block_builder,
                 max_batches,
                 batch_injectors,
-                self.identity_signer.clone_ref(py),
+                identity_signer.clone_ref(py),
                 settings_view,
             )
         };
 
-        for batch in state.pending_batches.iter() {
+        for batch in self.pending_batches.iter() {
             if candidate_block.can_add_batch() {
                 candidate_block.add_batch(batch.clone());
             } else {
                 break;
             }
         }
-        state.candidate_block = Some(candidate_block);
+        self.candidate_block = Some(candidate_block);
 
         Ok(())
     }
 
     fn finalize_block(
-        &self,
-        state: &mut BlockPublisherState,
+        &mut self,
+        batch_injector_factory: &PyObject,
+        block_cache: &PyObject,
+        identity_signer: &PyObject,
+        settings_cache: &PyObject,
+        state_view_factory: &PyObject,
+        block_sender: &PyObject,
+        block_wrapper_class: &PyObject,
+        block_header_class: &PyObject,
+        block_builder_class: &PyObject,
+        settings_view_class: &PyObject,
         consensus_data: Vec<u8>,
         force: bool,
     ) -> Result<String, FinalizeBlockError> {
         let mut option_result = None;
-        if let Some(ref mut candidate_block) = &mut state.candidate_block {
+        if let Some(ref mut candidate_block) = &mut self.candidate_block {
             option_result = Some(candidate_block.finalize(consensus_data, force));
         }
 
         let res = match option_result {
             Some(result) => match result {
                 Ok(finalize_result) => {
-                    state.pending_batches.update(
+                    self.pending_batches.update(
                         finalize_result.remaining_batches.clone(),
                         finalize_result.last_batch.clone(),
                     );
-                    state.candidate_block = None;
+                    self.candidate_block = None;
                     match finalize_result.block {
                         Some(block) => Some(Ok(self.publish_block(
+                            block_sender,
                             block,
                             finalize_result.injected_batch_ids,
                         ))),
@@ -345,40 +323,79 @@ impl SyncBlockPublisher {
         if let Some(val) = res {
             val
         } else {
-            self.restart_block(state);
+            self.restart_block(
+                batch_injector_factory,
+                block_cache,
+                identity_signer,
+                settings_cache,
+                state_view_factory,
+                block_wrapper_class,
+                block_header_class,
+                block_builder_class,
+                settings_view_class,
+            );
             Err(FinalizeBlockError::BlockEmpty)
         }
     }
 
-    fn get_block_checked(&self, block_id: &str) -> Result<BlockWrapper, PyErr> {
+    fn get_block_checked(block_cache: &PyObject, block_id: &str) -> Result<BlockWrapper, PyErr> {
         let gil = Python::acquire_gil();
         let py = gil.python();
-        let res = self.block_cache.get_item(py, block_id);
+        let res = block_cache.get_item(py, block_id);
         res.map(|i| i.extract::<BlockWrapper>(py))?
     }
 
-    fn get_block(&self, block_id: &str) -> BlockWrapper {
-        self.get_block_checked(block_id)
+    fn get_block(block_cache: &PyObject, block_id: &str) -> BlockWrapper {
+        Self::get_block_checked(block_cache, block_id)
             .expect("Unable to extract BlockWrapper")
     }
 
-    fn restart_block(&self, state: &mut BlockPublisherState) {
-        if let Some(previous_block) = state
+    fn restart_block(
+        &mut self,
+        batch_injector_factory: &PyObject,
+        block_cache: &PyObject,
+        identity_signer: &PyObject,
+        settings_cache: &PyObject,
+        state_view_factory: &PyObject,
+        block_wrapper_class: &PyObject,
+        block_header_class: &PyObject,
+        block_builder_class: &PyObject,
+        settings_view_class: &PyObject,
+    ) {
+        if let Some(previous_block) = self
             .get_previous_block_id()
-            .map(|previous_block_id| self.get_block(previous_block_id.as_str()))
+            .map(|previous_block_id| Self::get_block(block_cache, previous_block_id.as_str()))
         {
-            state.candidate_block = None;
-            self.initialize_block(state, &previous_block)
-                .expect("Initialization failed unexpectedly");
+            self.candidate_block = None;
+            self.initialize_block(
+                batch_injector_factory,
+                block_cache,
+                identity_signer,
+                settings_cache,
+                state_view_factory,
+                block_wrapper_class,
+                block_header_class,
+                block_builder_class,
+                settings_view_class,
+                &previous_block
+            ).expect("Initialization failed unexpectedly");
         }
     }
 
     fn summarize_block(
-        &self,
-        state: &mut BlockPublisherState,
+        &mut self,
+        batch_injector_factory: &PyObject,
+        block_cache: &PyObject,
+        identity_signer: &PyObject,
+        settings_cache: &PyObject,
+        state_view_factory: &PyObject,
+        block_wrapper_class: &PyObject,
+        block_header_class: &PyObject,
+        block_builder_class: &PyObject,
+        settings_view_class: &PyObject,
         force: bool,
     ) -> Result<Vec<u8>, FinalizeBlockError> {
-        let result = match state.candidate_block {
+        let result = match self.candidate_block {
             None => Some(Err(FinalizeBlockError::BlockNotInitialized)),
             Some(ref mut candidate_block) => match candidate_block.summarize(force) {
                 Ok(summary) => {
@@ -394,12 +411,27 @@ impl SyncBlockPublisher {
         if let Some(res) = result {
             res
         } else {
-            self.restart_block(state);
+            self.restart_block(
+                batch_injector_factory,
+                block_cache,
+                identity_signer,
+                settings_cache,
+                state_view_factory,
+                block_wrapper_class,
+                block_header_class,
+                block_builder_class,
+                settings_view_class,
+            );
             Err(FinalizeBlockError::BlockEmpty)
         }
     }
 
-    fn publish_block(&self, block: PyObject, injected_batches: Vec<String>) -> String {
+    fn publish_block(
+        &mut self,
+        block_sender: &PyObject,
+        block: PyObject,
+        injected_batches: Vec<String>
+    ) -> String {
         let gil = Python::acquire_gil();
         let py = gil.python();
         let block: Block = block
@@ -408,7 +440,7 @@ impl SyncBlockPublisher {
 
         let block_id = block.header_signature.clone();
 
-        self.block_sender
+        block_sender
             .call_method(py, "send", (block, injected_batches), None)
             .expect("BlockSender has no method send");
 
@@ -419,8 +451,8 @@ impl SyncBlockPublisher {
         block_id
     }
 
-    fn get_public_key(&self, py: Python) -> String {
-        self.identity_signer
+    fn get_public_key(identity_signer: &PyObject, py: Python) -> String {
+        identity_signer
             .call_method(py, "get_public_key", NoArgs, None)
             .expect("IdentitySigner has no method get_public_key")
             .call_method(py, "as_hex", NoArgs, None)
@@ -429,13 +461,12 @@ impl SyncBlockPublisher {
             .unwrap()
     }
 
-    fn is_building_block(&self, state: &BlockPublisherState) -> bool {
-        state.candidate_block.is_some()
+    fn is_building_block(&self) -> bool {
+        self.candidate_block.is_some()
     }
 
-    pub fn on_batch_received(&self, batch: Batch) {
-        let mut state = self.state.write().expect("Lock should not be poisoned");
-        for observer in &self.batch_observers {
+    pub fn on_batch_received(&mut self, batch_observers: &[PyObject], permission_verifier: &PyObject, batch: Batch) {
+        for observer in batch_observers {
             let gil = Python::acquire_gil();
             let py = gil.python();
             observer
@@ -445,7 +476,7 @@ impl SyncBlockPublisher {
         let permission_check = {
             let gil = Python::acquire_gil();
             let py = gil.python();
-            self.permission_verifier
+            permission_verifier
                 .call_method(py, "is_batch_signer_authorized", (batch.clone(),), None)
                 .expect("PermissionVerifier has no method is_batch_signer_authorized")
                 .extract(py)
@@ -453,8 +484,8 @@ impl SyncBlockPublisher {
         };
 
         if permission_check {
-            state.pending_batches.append(batch.clone());
-            if let Some(ref mut candidate_block) = state.candidate_block {
+            self.pending_batches.append(batch.clone());
+            if let Some(ref mut candidate_block) = self.candidate_block {
                 if candidate_block.can_add_batch() {
                     candidate_block.add_batch(batch);
                 }
@@ -462,18 +493,71 @@ impl SyncBlockPublisher {
         }
     }
 
-    fn cancel_block(&self, state: &mut BlockPublisherState) {
+    fn cancel_block(&mut self) -> Result<(), CancelBlockError>{
         let mut candidate_block = None;
-        mem::swap(&mut state.candidate_block, &mut candidate_block);
+        mem::swap(&mut self.candidate_block, &mut candidate_block);
         if let Some(mut candidate_block) = candidate_block {
             candidate_block.cancel();
+            Ok(())
+        } else {
+            Err(CancelBlockError::BlockNotInProgress)
         }
     }
 }
 
-#[derive(Clone)]
 pub struct BlockPublisher {
-    pub publisher: SyncBlockPublisher,
+    // Locked-protected state
+    pub state: Arc<RwLock<BlockPublisherState>>,
+    exit: Arc<Exit>,
+
+    batch_injector_factory: PyObject,
+    batch_observers: Vec<PyObject>,
+    batch_publisher: PyObject,
+    block_cache: PyObject,
+    block_sender: PyObject,
+    config_dir: PyObject,
+    data_dir: PyObject,
+    identity_signer: PyObject,
+    permission_verifier: PyObject,
+    settings_cache: PyObject,
+    state_view_factory: PyObject,
+
+    // Python classes to avoid re-importing later
+    block_builder_class: PyObject,
+    block_header_class: PyObject,
+    block_wrapper_class: PyObject,
+    settings_view_class: PyObject,
+}
+
+impl Clone for BlockPublisher {
+    fn clone(&self) -> Self {
+        let state = Arc::clone(&self.state);
+
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+
+        BlockPublisher {
+            state,
+            exit: Arc::clone(&self.exit),
+
+            batch_injector_factory: self.batch_injector_factory.clone_ref(py),
+            batch_observers: self.batch_observers.iter().map(|i| i.clone_ref(py)).collect(),
+            batch_publisher: self.batch_publisher.clone_ref(py),
+            block_cache: self.block_cache.clone_ref(py),
+            block_sender: self.block_sender.clone_ref(py),
+            config_dir: self.config_dir.clone_ref(py),
+            data_dir: self.data_dir.clone_ref(py),
+            identity_signer: self.identity_signer.clone_ref(py),
+            permission_verifier: self.permission_verifier.clone_ref(py),
+            settings_cache: self.settings_cache.clone_ref(py),
+            state_view_factory: self.state_view_factory.clone_ref(py),
+
+            block_wrapper_class: self.block_wrapper_class.clone_ref(py),
+            block_header_class: self.block_header_class.clone_ref(py),
+            block_builder_class: self.block_builder_class.clone_ref(py),
+            settings_view_class: self.settings_view_class.clone_ref(py),
+        }
+    }
 }
 
 impl BlockPublisher {
@@ -505,35 +589,31 @@ impl BlockPublisher {
             PendingBatchesPool::new(NUM_PUBLISH_COUNT_SAMPLES, INITIAL_PUBLISH_COUNT),
         )));
 
-        let publisher = SyncBlockPublisher {
-            state,
-            block_cache,
-            state_view_factory,
-            settings_cache,
-            block_sender,
-            batch_publisher,
-            identity_signer,
-            data_dir,
-            config_dir,
-            permission_verifier,
-            batch_observers,
-            batch_injector_factory,
-            block_wrapper_class,
-            block_header_class,
-            block_builder_class,
-            settings_view_class,
-            exit: Arc::new(Exit::new()),
-        };
-
         BlockPublisher {
-            publisher,
+            state,
+            exit: Arc::new(Exit::new()),
+            batch_injector_factory,
+            batch_observers,
+            batch_publisher,
+            block_cache,
+            block_sender,
+            config_dir,
+            data_dir,
+            identity_signer,
+            permission_verifier,
+            settings_cache,
+            state_view_factory,
+            block_builder_class,
+            block_header_class,
+            block_wrapper_class,
+            settings_view_class,
         }
     }
 
     pub fn start(&mut self) -> IncomingBatchSender {
         let (batch_tx, mut batch_rx) = make_batch_queue();
         let builder = thread::Builder::new().name("PublisherThread".into());
-        let block_publisher = self.publisher.clone();
+        let block_publisher = self.clone();
         builder
             .spawn(move || {
                 loop {
@@ -555,34 +635,48 @@ impl BlockPublisher {
                 warn!("PublisherThread exiting");
             })
             .unwrap();
-
         batch_tx
     }
 
+    pub fn on_batch_received(&self, batch: Batch) {
+        self.state.write().expect("RwLock was poisoned")
+            .on_batch_received(
+                &self.batch_observers[..],
+                &self.permission_verifier,
+                batch,
+            );
+    }
+
     pub fn cancel_block(&self) -> Result<(), CancelBlockError> {
-        let mut state = self.publisher.state.write().expect("RwLock was poisoned");
-        if state.candidate_block.is_some() {
-            self.publisher.cancel_block(&mut state);
-            Ok(())
-        } else {
-            Err(CancelBlockError::BlockNotInProgress)
-        }
+        let mut state = self.state.write().expect("RwLock was poisoned");
+        state.cancel_block()
     }
 
     pub fn stop(&self) {
-        self.publisher.exit.set();
+        self.exit.set();
     }
 
     pub fn chain_head_lock(&self) -> ChainHeadLock {
-        ChainHeadLock::new(self.publisher.clone())
+        ChainHeadLock::new(self.clone())
     }
 
     pub fn initialize_block(
         &self,
         previous_block: BlockWrapper,
     ) -> Result<(), InitializeBlockError> {
-        let mut state = self.publisher.state.write().expect("RwLock was poisoned");
-        self.publisher.initialize_block(&mut state, &previous_block)
+        let mut state = self.state.write().expect("RwLock was poisoned");
+        state.initialize_block(
+            &self.batch_injector_factory,
+            &self.block_cache,
+            &self.identity_signer,
+            &self.settings_cache,
+            &self.state_view_factory,
+            &self.block_wrapper_class,
+            &self.block_header_class,
+            &self.block_builder_class,
+            &self.settings_view_class,
+            &previous_block
+        )
     }
 
     pub fn finalize_block(
@@ -590,21 +684,41 @@ impl BlockPublisher {
         consensus_data: Vec<u8>,
         force: bool,
     ) -> Result<String, FinalizeBlockError> {
-        let mut state = self.publisher.state.write().expect("RwLock is poisoned");
-        self.publisher
-            .finalize_block(&mut state, consensus_data, force)
+        let mut state = self.state.write().expect("RwLock is poisoned");
+        state.finalize_block(
+            &self.batch_injector_factory,
+            &self.block_cache,
+            &self.identity_signer,
+            &self.settings_cache,
+            &self.state_view_factory,
+            &self.block_sender,
+            &self.block_wrapper_class,
+            &self.block_header_class,
+            &self.block_builder_class,
+            &self.settings_view_class,
+            consensus_data,
+            force,
+        )
     }
 
     pub fn summarize_block(&self, force: bool) -> Result<Vec<u8>, FinalizeBlockError> {
-        let mut state = self.publisher.state.write().expect("RwLock is poisoned");
-        self.publisher.summarize_block(&mut state, force)
+        let mut state = self.state.write().expect("RwLock is poisoned");
+        state.summarize_block(
+            &self.batch_injector_factory,
+            &self.block_cache,
+            &self.identity_signer,
+            &self.settings_cache,
+            &self.state_view_factory,
+            &self.block_wrapper_class,
+            &self.block_header_class,
+            &self.block_builder_class,
+            &self.settings_view_class,
+            force,
+        )
     }
 
     pub fn pending_batch_info(&self) -> (i32, i32) {
-        let state = self.publisher
-            .state
-            .read()
-            .expect("RwLock was poisoned during a write lock");
+        let state = self.state.read().expect("RwLock was poisoned during a write lock");
         (
             state.pending_batches.len() as i32,
             state.pending_batches.limit() as i32,
@@ -612,11 +726,51 @@ impl BlockPublisher {
     }
 
     pub fn has_batch(&self, batch_id: &str) -> bool {
-        let state = self.publisher
-            .state
+        self.state
             .read()
+            .expect("RwLock was poisoned during a write lock")
+            .pending_batches
+            .contains(batch_id)
+    }
+
+    pub fn on_chain_updated(
+        &self,
+        chain_head: BlockWrapper,
+        committed_batches: Vec<Batch>,
+        uncommitted_batches: Vec<Batch>,
+    ) {
+        let mut state = self.state
+            .write()
             .expect("RwLock was poisoned during a write lock");
-        return state.pending_batches.contains(batch_id);
+        self.on_chain_updated_with_state(
+            &mut state,
+            chain_head,
+            committed_batches,
+            uncommitted_batches,
+        );
+    }
+
+    pub fn on_chain_updated_with_state(
+        &self,
+        state: &mut BlockPublisherState,
+        chain_head: BlockWrapper,
+        committed_batches: Vec<Batch>,
+        uncommitted_batches: Vec<Batch>,
+    ) {
+        state.on_chain_updated(
+            &self.batch_injector_factory,
+            &self.block_cache,
+            &self.identity_signer,
+            &self.settings_cache,
+            &self.state_view_factory,
+            &self.block_wrapper_class,
+            &self.block_header_class,
+            &self.block_builder_class,
+            &self.settings_view_class,
+            chain_head,
+            committed_batches,
+            uncommitted_batches,
+        );
     }
 }
 

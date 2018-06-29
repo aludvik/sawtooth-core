@@ -2,17 +2,17 @@ use std::sync::RwLockWriteGuard;
 
 use batch::Batch;
 use journal::block_wrapper::BlockWrapper;
-use journal::publisher::{BlockPublisherState, SyncBlockPublisher};
+use journal::publisher::{BlockPublisher, BlockPublisherState};
 
 /// Abstracts acquiring the lock used by the BlockPublisher without exposing access to the
 /// publisher itself.
 #[derive(Clone)]
 pub struct ChainHeadLock {
-    publisher: SyncBlockPublisher,
+    publisher: BlockPublisher,
 }
 
 impl ChainHeadLock {
-    pub fn new(publisher: SyncBlockPublisher) -> Self {
+    pub fn new(publisher: BlockPublisher) -> Self {
         ChainHeadLock { publisher }
     }
 
@@ -27,7 +27,7 @@ impl ChainHeadLock {
 /// RAII type that represents having acquired the lock used by the BlockPublisher
 pub struct ChainHeadGuard<'a> {
     state: RwLockWriteGuard<'a, BlockPublisherState>,
-    publisher: SyncBlockPublisher,
+    publisher: BlockPublisher,
 }
 
 impl<'a> ChainHeadGuard<'a> {
@@ -37,7 +37,7 @@ impl<'a> ChainHeadGuard<'a> {
         committed_batches: Vec<Batch>,
         uncommitted_batches: Vec<Batch>,
     ) {
-        self.publisher.on_chain_updated(
+        self.publisher.on_chain_updated_with_state(
             &mut self.state,
             chain_head,
             committed_batches,

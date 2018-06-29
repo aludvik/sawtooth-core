@@ -15,8 +15,7 @@
  * ------------------------------------------------------------------------------
  */
 use cpython;
-use cpython::{FromPyObject, ObjectProtocol, PyClone, PyList, PyObject, Python, PythonObject,
-              ToPyObject};
+use cpython::{ObjectProtocol, PyClone, PyList, PyObject, Python, PythonObject, ToPyObject};
 use database::lmdb::LmdbDatabase;
 use journal::block_validator::{BlockValidator, ValidationError};
 use journal::block_wrapper::BlockWrapper;
