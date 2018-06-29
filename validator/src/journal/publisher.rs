@@ -779,7 +779,7 @@ impl BlockPublisher {
 /// duplicates to make it into this queue, which is intentional to avoid
 /// blocking threads trying to put/get from the queue. Any duplicates
 /// introduced by this must be filtered out later.
-pub fn make_batch_queue() -> (IncomingBatchSender, IncomingBatchReceiver) {
+fn make_batch_queue() -> (IncomingBatchSender, IncomingBatchReceiver) {
     let (sender, reciever) = channel();
     let ids = Arc::new(RwLock::new(HashSet::new()));
     (
