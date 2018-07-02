@@ -189,7 +189,7 @@ pub extern "C" fn block_publisher_on_batch_received(
             .unwrap()
     };
     let publisher = unsafe { (*(publisher as *mut BlockPublisher)).clone() };
-    py.allow_threads(move || publisher.publisher.on_batch_received(batch));
+    py.allow_threads(move || publisher.on_batch_received(batch));
     ErrorCode::Success
 }
 
