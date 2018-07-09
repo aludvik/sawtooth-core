@@ -344,7 +344,7 @@ test_integration() {
     run_docker_test test_transactor_permissioning
     copy_coverage .coverage.test_transactor_permissioning
     run_docker_test test_poet_liveness
-    copy_coverage .coverage.test_poet_liveness
+    copy_coverage .coverage.test_poet_liveness --timeout 600
 }
 
 test_deployment() {
