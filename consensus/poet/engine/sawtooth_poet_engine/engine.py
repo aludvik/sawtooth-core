@@ -15,6 +15,7 @@
 
 import logging
 import queue
+import time
 
 import json
 
@@ -28,6 +29,8 @@ from sawtooth_poet_engine.pending import PendingForks
 
 LOGGER = logging.getLogger(__name__)
 
+POLL_INTERVAL = 0.1
+PUBLISH_RETRY_INTERVAL = 1
 
 class PoetEngine(Engine):
     def __init__(self, path_config, component_endpoint):
@@ -42,6 +45,7 @@ class PoetEngine(Engine):
         self._published = False
         self._building = False
         self._committing = False
+        self._retry_again_at = time.time()
 
         self._pending_forks_to_resolve = PendingForks()
 
@@ -95,12 +99,6 @@ class PoetEngine(Engine):
 
     def _ignore_block(self, block_id):
         self._service.ignore_block(block_id)
-
-    def _cancel_block(self):
-        try:
-            self._service.cancel_block()
-        except exceptions.InvalidState:
-            pass
 
     def _summarize_block(self):
         try:
@@ -165,7 +163,7 @@ class PoetEngine(Engine):
         while True:
             try:
                 try:
-                    type_tag, data = updates.get(timeout=0.1)
+                    type_tag, data = updates.get(timeout=POLL_INTERVAL)
                 except queue.Empty:
                     pass
                 else:
@@ -187,8 +185,17 @@ class PoetEngine(Engine):
             except Exception:  # pylint: disable=broad-except
                 LOGGER.exception("Unhandled exception in message loop")
 
+    def _can_retry(self):
+        return time.time() > self._retry_again_at
+
+    def _wait_to_try_again(self):
+        self._retry_again_at = time.time() + PUBLISH_RETRY_INTERVAL
+
     def _try_to_publish(self):
         if self._published:
+            return
+
+        if not self._can_retry():
             return
 
         if not self._building:
@@ -202,9 +209,8 @@ class PoetEngine(Engine):
                     LOGGER.info("Published block %s", block_id.hex())
                     self._published = True
                     self._building = False
-                else:
-                    self._cancel_block()
-                    self._building = False
+
+        self._wait_to_try_again()
 
     def _handle_new_block(self, block):
         block = PoetBlock(block)
@@ -253,9 +259,6 @@ class PoetEngine(Engine):
             'Chain head updated to %s, abandoning block in progress',
             block_id.hex())
 
-        self._cancel_block()
-
-        self._building = False
         self._published = False
         self._committing = False
 
