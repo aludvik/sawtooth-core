@@ -104,6 +104,9 @@ services:
             {\\\"family\\\":\\\"xo\\\",
              \\\"version\\\":\\\"1.0\\\",
              \\\"namespaces\\\":[\\\"5b7349\\\"]}]' \
+          sawtooth.consensus.algorithm=None \
+          sawtooth.consensus.min_wait_time=1 \
+          sawtooth.consensus.max_wait_time=3 \
           -o config_transaction_families.batch && \
         sawset proposal create \
           -k /etc/sawtooth/keys/validator.priv \
