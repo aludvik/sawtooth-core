@@ -45,7 +45,7 @@ from sawtooth_sdk.protobuf.validator_pb2 import Message
 LOGGER = logging.getLogger(__name__)
 
 
-class PoetOracle:
+class PoetShim:
     '''This is a wrapper around the PoET structures (publisher,
     verifier, fork resolver) and their attendant proxies.
     '''

@@ -23,7 +23,7 @@ from sawtooth_sdk.consensus.engine import Engine
 from sawtooth_sdk.consensus import exceptions
 from sawtooth_sdk.protobuf.validator_pb2 import Message
 
-from sawtooth_poet_engine.oracle import PoetOracle, PoetBlock
+from sawtooth_poet_engine.shim import PoetShim, PoetBlock
 from sawtooth_poet_engine.pending import PendingForks
 
 
@@ -32,13 +32,14 @@ LOGGER = logging.getLogger(__name__)
 POLL_INTERVAL = 0.1
 PUBLISH_RETRY_INTERVAL = 1
 
+
 class PoetEngine(Engine):
     def __init__(self, path_config, component_endpoint):
         # components
         self._path_config = path_config
         self._component_endpoint = component_endpoint
         self._service = None
-        self._oracle = None
+        self._shim = None
 
         # state variables
         self._exit = False
@@ -61,7 +62,7 @@ class PoetEngine(Engine):
     def _initialize_block(self):
         chain_head = self._get_chain_head()
 
-        initialize = self._oracle.initialize_block(chain_head)
+        initialize = self._shim.initialize_block(chain_head)
 
         if initialize:
             self._service.initialize_block(previous_id=chain_head.block_id)
@@ -69,11 +70,11 @@ class PoetEngine(Engine):
         return initialize
 
     def _check_consensus(self, block):
-        return self._oracle.verify_block(block)
+        return self._shim.verify_block(block)
 
     def _switch_forks(self, current_head, new_head):
         try:
-            switch = self._oracle.switch_forks(current_head, new_head)
+            switch = self._shim.switch_forks(current_head, new_head)
         # The PoET fork resolver raises TypeErrors in certain cases,
         # e.g. when it encounters non-PoET blocks.
         except TypeError as err:
@@ -116,7 +117,7 @@ class PoetEngine(Engine):
             LOGGER.debug('Block not ready to be summarized')
             return None
 
-        consensus = self._oracle.finalize_block(summary)
+        consensus = self._shim.finalize_block(summary)
 
         if consensus is None:
             return None
@@ -137,11 +138,11 @@ class PoetEngine(Engine):
 
     def _check_publish_block(self):
         # Publishing is based solely on wait time, so just give it None.
-        return self._oracle.check_publish_block(None)
+        return self._shim.check_publish_block(None)
 
     def start(self, updates, service, startup_state):
         self._service = service
-        self._oracle = PoetOracle(
+        self._shim = PoetShim(
             service=service,
             component_endpoint=self._component_endpoint,
             config_dir=self._path_config.config_dir,
