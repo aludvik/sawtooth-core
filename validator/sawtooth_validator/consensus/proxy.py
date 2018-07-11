@@ -13,6 +13,12 @@
 # limitations under the License.
 # ------------------------------------------------------------------------------
 
+import logging
+
+from sawtooth_validator.journal.block_wrapper import BlockStatus
+
+LOGGER = logging.getLogger(__name__)
+
 
 class UnknownBlock(Exception):
     """The given block could not be found."""
@@ -97,6 +103,11 @@ class ConsensusProxy:
             block = self._block_cache[block_id.hex()]
         except KeyError as key_error:
             raise UnknownBlock(key_error.args[0])
+        if block.status == BlockStatus.Unknown:
+            LOGGER.warn(
+                "Tried to commit block that hasn't been validated: %s",
+                block_id)
+            raise UnknownBlock(block_id)
         self._chain_controller.commit_block(block)
 
     def ignore_block(self, block_id):
