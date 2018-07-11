@@ -281,7 +281,7 @@ class BlockPublisher(OwnedPointer):
             ctypes.c_bool(force),
             ctypes.byref(c_result), ctypes.byref(c_result_len))
 
-        return ffi.from_c_bytes(c_result, c_result_len)
+        return ffi.from_c_bytes(c_result, c_result_len).decode('utf-8')
 
     def finalize_block(self, consensus=None, force=False):
         (c_result, c_result_len) = ffi.prepare_byte_result()
@@ -291,7 +291,7 @@ class BlockPublisher(OwnedPointer):
             ctypes.c_bool(force),
             ctypes.byref(c_result), ctypes.byref(c_result_len))
 
-        return ffi.from_c_bytes(c_result, c_result_len)
+        return ffi.from_c_bytes(c_result, c_result_len).decode('utf-8')
 
     def cancel_block(self):
         self._call("cancel_block")
