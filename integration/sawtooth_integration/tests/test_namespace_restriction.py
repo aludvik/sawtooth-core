@@ -35,6 +35,7 @@ LOGGER.setLevel(logging.INFO)
 
 XO_PREFIX = '5b7349'
 WAIT = 300
+EXPECTED_BLOCK_HEIGHT = 4
 
 
 def get_blocks():
@@ -138,8 +139,16 @@ class TestNamespaceRestriction(unittest.TestCase):
                 xo_cmds[i],
                 'http://rest-api:8008',
                 WAIT))
+
+        # block_info stores the previous block's info
+        for i in range(0, EXPECTED_BLOCK_HEIGHT):
             block_info = get_block_info(i)
             self.assertEqual(block_info.block_num, i)
+
+        with self.assertRaises(urllib.error.HTTPError):
+            # this shouldn't exist yet, unless the validator is publishing
+            # blocks with just block info in them
+            get_block_info(EXPECTED_BLOCK_HEIGHT)
 
         # Assert block info batches are first in the block and
         # that any other batch is of the xo family
@@ -148,6 +157,8 @@ class TestNamespaceRestriction(unittest.TestCase):
             family_name = \
                 block['batches'][0]['transactions'][0]['header']['family_name']
             self.assertEqual(family_name, 'block_info')
-            for batch in block['batches'][1:]:
+            batches = block['batches'][1:]
+            self.assertTrue(len(batches) > 1)
+            for batch in batches:
                 self.assertEqual(
                     batch['transactions'][0]['header']['family_name'], 'xo')
