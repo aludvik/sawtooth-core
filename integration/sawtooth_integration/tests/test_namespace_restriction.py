@@ -73,7 +73,7 @@ def post_batch(batch):
     headers = {'Content-Type': 'application/octet-stream'}
     response = query_rest_api(
         '/batches', data=batch, headers=headers)
-    response = submit_request('{}'.format(response['link']))
+    response = submit_request('{}&wait={}'.format(response['link'], WAIT))
     return response
 
 
@@ -119,13 +119,12 @@ class TestNamespaceRestriction(unittest.TestCase):
         - intkey transactions are banned
         - xo transactions are allowed
         """
-        batches = make_batches('abcdef')
+        batches = make_batches('abcde')
 
         send_xo_cmd('sawtooth keygen')
 
         xo_cmds = [
             'xo create game',
-            'xo take game 5',
             'xo take game 5',
             'xo take game 9',
             'xo create game',
