@@ -20,13 +20,12 @@ services:
     build:
       context: .
       dockerfile: engine/Dockerfile
-    image: poet-engine-local:${ISOLATION_ID}
+    image: sawtooth-poet-engine-local:${ISOLATION_ID}
     volumes:
       - ./:/project/sawtooth-poet
     container_name: sawtooth-poet-engine-local
     command: |
       bash -c "
-        bin/protogen
         cd engine
         python3 setup.py clean --all
         python3 setup.py build
@@ -87,3 +86,10 @@ services:
     volumes:
       - ./:/project/sawtooth-poet
     container_name: sawtooth-poet-simulator-local
+
+  poet-tests:
+    build:
+      context: .
+      dockerfile: tests/Dockerfile
+    image: sawtooth-poet-tests-local:${ISOLATION_ID}
+    container_name: sawtooth-poet-tests-local

@@ -39,7 +39,9 @@ def bump_version(version):
 
 
 def auto_version(default, strict):
-    output = subprocess.check_output(['git', 'describe', '--dirty'])
+    # TODO: Replace this
+    output = b"v1.1.0-1092-ga11bfac3-dirty"
+    # output = subprocess.check_output(['git', 'describe', '--dirty'])
     parts = output.decode('utf-8').strip().split('-', 3)
     parts[0] = parts[0][1:]  # strip the leading 'v'
     if len(parts) > 1:

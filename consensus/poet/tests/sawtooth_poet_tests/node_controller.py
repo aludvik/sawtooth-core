@@ -20,7 +20,7 @@ import time
 import logging
 import signal
 
-from sawtooth_integration.tests.integration_tools import wait_for_rest_apis
+from sawtooth_poet_tests.integration_tools import wait_for_rest_apis
 
 
 LOGGER = logging.getLogger(__name__)

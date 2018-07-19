@@ -44,6 +44,4 @@
 /docs/source/_autogen/
 /docs/source/cli/output/
 
-/utility/**/__pycache__/
-
 *.batch

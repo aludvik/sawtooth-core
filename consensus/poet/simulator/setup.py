@@ -38,11 +38,9 @@ setup(name='sawtooth-poet-simulator',
       packages=find_packages(),
       install_requires=[
           'cryptography>=1.7.1',
-          'protobuf',
           'sawtooth-poet-common',
           'sawtooth-poet-simulator',
           'sawtooth-signing',
-          'sawtooth-sdk',
       ],
       data_files=data_files,
       entry_points={})

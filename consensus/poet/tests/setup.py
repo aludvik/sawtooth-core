@@ -24,10 +24,10 @@ from setuptools import setup, find_packages
 data_files = []
 
 setup(
-    name='sawtooth-integration',
+    name='sawtooth-poet-tests',
     version=subprocess.check_output(
         ['../bin/get_version']).decode('utf-8').strip(),
-    description='Sawtooth Integration',
+    description='Sawtooth PoET Tests',
     author='Hyperledger Sawtooth',
     url='https://github.com/hyperledger/sawtooth-poet',
     packages=find_packages(),

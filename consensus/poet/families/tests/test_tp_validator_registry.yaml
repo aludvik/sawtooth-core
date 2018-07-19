@@ -44,7 +44,7 @@ services:
     command: nose2-3
         -c /project/sawtooth-poet/families/nose2.cfg
         -v
-        -s /project/sawtooth-poet/tests/sawtooth_poet_integration
+        -s /project/sawtooth-poet/tests/sawtooth_poet_tests
         test_tp_validator_registry
     stop_signal: SIGKILL
     environment:

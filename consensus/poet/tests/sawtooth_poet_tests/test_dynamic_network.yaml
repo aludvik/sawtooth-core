@@ -25,9 +25,9 @@ services:
     volumes:
       - $SAWTOOTH_CORE:/project/sawtooth-poet
     command: nose2-3
-        -c /project/sawtooth-poet/integration/sawtooth_integration/nose2.cfg
+        -c /project/sawtooth-poet/tests/sawtooth_poet_tests/nose2.cfg
         -v
-        -s /project/sawtooth-poet/integration/sawtooth_integration/tests
+        -s /project/sawtooth-poet/tests/sawtooth_poet_tests/
         test_dynamic_network.TestDynamicNetwork.test_dynamic_network
     stop_signal: SIGKILL
     environment:
