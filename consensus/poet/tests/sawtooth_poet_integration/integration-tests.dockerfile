@@ -53,6 +53,6 @@ RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add - \
 RUN apt-get update && apt-get install -y -q \
     docker-ce
 
-ENV PATH=$PATH:/project/sawtooth-core/bin
+ENV PATH=$PATH:/project/sawtooth-poet/bin
 
-WORKDIR /project/sawtooth-core
+WORKDIR /project/sawtooth-poet

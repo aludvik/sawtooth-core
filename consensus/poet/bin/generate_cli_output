@@ -16,7 +16,7 @@
 # ------------------------------------------------------------------------------
 
 if [ ! -e source/conf.py ]; then
-    echo "Must be run from the sawtooth-core repo docs directory." 1>&2
+    echo "Must be run from the sawtooth-poet repo docs directory." 1>&2
     exit 1
 fi
 

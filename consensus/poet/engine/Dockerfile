@@ -44,9 +44,9 @@ RUN apt-get install -y -q --allow-downgrades \
 
 RUN mkdir -p /var/log/sawtooth
 
-ENV PATH=$PATH:/project/sawtooth-core/bin
+ENV PATH=$PATH:/project/sawtooth-poet/bin
 
-WORKDIR /project/sawtooth-core
+WORKDIR /project/sawtooth-poet
 
 CMD echo "\033[0;32m--- Building poet engine ---\n\033[0m" \
  && bin/protogen \

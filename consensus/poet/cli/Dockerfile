@@ -42,9 +42,9 @@ RUN apt-get install -y -q --allow-downgrades \
     python3-secp256k1 \
     python3-toml
 
-ENV PATH=$PATH:/project/sawtooth-core/bin
+ENV PATH=$PATH:/project/sawtooth-poet/bin
 
-WORKDIR /project/sawtooth-core
+WORKDIR /project/sawtooth-poet
 
 CMD echo "\033[0;32m--- Building poet cli ---\n\033[0m" \
  && bin/protogen \

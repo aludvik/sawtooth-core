@@ -33,9 +33,9 @@ RUN apt-get install -y -q --allow-downgrades \
     python3-grpcio-tools \
     python3-protobuf
 
-ENV PATH=$PATH:/project/sawtooth-core/bin
+ENV PATH=$PATH:/project/sawtooth-poet/bin
 
-WORKDIR /project/sawtooth-core
+WORKDIR /project/sawtooth-poet
 
 CMD echo "\033[0;32m--- Building poet simulator ---\n\033[0m" \
  && bin/protogen \

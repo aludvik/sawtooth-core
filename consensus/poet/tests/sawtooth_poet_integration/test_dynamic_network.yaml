@@ -23,19 +23,19 @@ services:
       dockerfile: ./validator/tests/validator-tests.dockerfile
     image: sawtooth-validator-tests:$ISOLATION_ID
     volumes:
-      - $SAWTOOTH_CORE:/project/sawtooth-core
+      - $SAWTOOTH_CORE:/project/sawtooth-poet
     command: nose2-3
-        -c /project/sawtooth-core/integration/sawtooth_integration/nose2.cfg
+        -c /project/sawtooth-poet/integration/sawtooth_integration/nose2.cfg
         -v
-        -s /project/sawtooth-core/integration/sawtooth_integration/tests
+        -s /project/sawtooth-poet/integration/sawtooth_integration/tests
         test_dynamic_network.TestDynamicNetwork.test_dynamic_network
     stop_signal: SIGKILL
     environment:
-      PYTHONPATH: "/project/sawtooth-core/sdk/python:\
-        /project/sawtooth-core/sdk/examples/intkey_python:\
-        /project/sawtooth-core/integration:\
-        /project/sawtooth-core/signing:\
-        /project/sawtooth-core/cli:\
-        /project/sawtooth-core/consensus/poet/common:\
-        /project/sawtooth-core/consensus/poet/simulator:\
-        /project/sawtooth-core/consensus/poet/core"
+      PYTHONPATH: "/project/sawtooth-poet/sdk/python:\
+        /project/sawtooth-poet/sdk/examples/intkey_python:\
+        /project/sawtooth-poet/integration:\
+        /project/sawtooth-poet/signing:\
+        /project/sawtooth-poet/cli:\
+        /project/sawtooth-poet/consensus/poet/common:\
+        /project/sawtooth-poet/consensus/poet/simulator:\
+        /project/sawtooth-poet/consensus/poet/core"
