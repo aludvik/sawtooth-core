@@ -79,15 +79,6 @@ services:
       "
     stop_signal: SIGKILL
 
-  poet-sgx:
-    build:
-      context: .
-      dockerfile: sgx/Dockerfile
-    image: sawtooth-poet-sgx-local:${ISOLATION_ID}
-    volumes:
-      - ./:/project/sawtooth-poet
-    container_name: sawtooth-poet-sgx-local
-
   poet-simulator:
     build:
       context: .
@@ -96,21 +87,3 @@ services:
     volumes:
       - ./:/project/sawtooth-poet
     container_name: sawtooth-poet-simulator-local
-
-  ias_client:
-    build:
-      context: .
-      dockerfile: ias_client/Dockerfile
-    image: sawtooth-ias-client-local:${ISOLATION_ID}
-    volumes:
-      - ./:/project/sawtooth-poet
-    container_name: sawtooth-ias-client-local
-
-  ias_proxy:
-    build:
-      context: .
-      dockerfile: ias_proxy/Dockerfile
-    image: sawtooth-ias-proxy-local:${ISOLATION_ID}
-    volumes:
-      - ./:/project/sawtooth-poet
-    container_name: sawtooth-ias-proxy-local

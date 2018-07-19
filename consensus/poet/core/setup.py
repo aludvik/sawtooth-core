@@ -22,7 +22,7 @@ from setuptools import setup, find_packages
 
 setup(name='sawtooth-poet-core',
       version=subprocess.check_output(
-          ['../../../bin/get_version']).decode('utf-8').strip(),
+          ['../bin/get_version']).decode('utf-8').strip(),
       description='Sawtooth Core Consensus Module',
       author='Hyperledger Sawtooth',
       url='https://github.com/hyperledger/sawtooth-core',

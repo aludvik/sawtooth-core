@@ -39,6 +39,6 @@ WORKDIR /project/sawtooth-core
 
 CMD echo "\033[0;32m--- Building poet common ---\n\033[0m" \
  && bin/protogen \
- && cd consensus/poet/common \
+ && cd common \
  && python3 setup.py clean --all \
  && python3 setup.py build
