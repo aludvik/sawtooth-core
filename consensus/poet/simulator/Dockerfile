@@ -39,6 +39,6 @@ WORKDIR /project/sawtooth-poet
 
 CMD echo "\033[0;32m--- Building poet simulator ---\n\033[0m" \
  && bin/protogen \
- && cd consensus/poet/simulator \
+ && cd simulator \
  && python3 setup.py clean --all \
  && python3 setup.py build
