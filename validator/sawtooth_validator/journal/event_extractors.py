@@ -14,13 +14,26 @@
 # ------------------------------------------------------------------------------
 
 from sawtooth_validator.server.events.extractor import EventExtractor
+from sawtooth_validator.journal import block_wrapper
+from sawtooth_validator.protobuf.block_pb2 import BlockHeader
 from sawtooth_validator.protobuf.events_pb2 import Event
 from sawtooth_validator.protobuf.transaction_receipt_pb2 import StateChangeList
 
 
 class BlockEventExtractor(EventExtractor):
     def __init__(self, block):
-        self._block = block
+
+        if isinstance(block.header, bytes):
+            block_header = BlockHeader()
+            block_header.ParseFromString(block.header)
+            block_num = block_header.block_num
+        else:
+            block_num = block.block_num
+
+        self._block = block_wrapper.BlockWrapper.wrap(
+            block,
+            block_num,
+            block_wrapper.BlockStatus.Valid)
 
     def _make_event(self):
         block = self._block
