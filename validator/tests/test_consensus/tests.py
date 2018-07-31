@@ -228,7 +228,7 @@ class TestHandlers(unittest.TestCase):
 class TestProxy(unittest.TestCase):
 
     def setUp(self):
-        self._mock_block_cache = {}
+        self._mock_block_manager = {}
         self._mock_block_publisher = Mock()
         self._mock_chain_controller = Mock()
         self._mock_gossip = Mock()
@@ -236,7 +236,7 @@ class TestProxy(unittest.TestCase):
         self._mock_settings_view_factory = Mock()
         self._mock_state_view_factory = Mock()
         self._proxy = ConsensusProxy(
-            block_cache=self._mock_block_cache,
+            block_manager=self._mock_block_manager,
             chain_controller=self._mock_chain_controller,
             block_publisher=self._mock_block_publisher,
             gossip=self._mock_gossip,
@@ -256,7 +256,7 @@ class TestProxy(unittest.TestCase):
         self._mock_block_publisher.initialize_block.assert_called_with(
             self._mock_chain_controller.chain_head)
 
-        self._mock_block_cache["34"] = "a block"
+        self._mock_block_manager["34"] = "a block"
         self._proxy.initialize_block(previous_id=bytes([0x34]))
         self._mock_block_publisher\
             .initialize_block.assert_called_with("a block")
@@ -284,29 +284,29 @@ class TestProxy(unittest.TestCase):
     # Using chain controller
     def test_check_blocks(self):
         block_ids = [bytes([0x56]), bytes([0x78])]
-        self._mock_block_cache["56"] = "block0"
-        self._mock_block_cache["78"] = "block1"
+        self._mock_block_manager["56"] = "block0"
+        self._mock_block_manager["78"] = "block1"
         self._proxy.check_blocks(block_ids)
 
         with self.assertRaises(UnknownBlock):
             self._proxy.check_blocks([bytes([0x00])])
 
     def test_commit_block(self):
-        self._mock_block_cache["34"] = "a block"
+        self._mock_block_manager["34"] = "a block"
         self._proxy.commit_block(block_id=bytes([0x34]))
         self._mock_chain_controller\
             .commit_block\
             .assert_called_with("a block")
 
     def test_ignore_block(self):
-        self._mock_block_cache["34"] = "a block"
+        self._mock_block_manager["34"] = "a block"
         self._proxy.ignore_block(block_id=bytes([0x34]))
         self._mock_chain_controller\
             .ignore_block\
             .assert_called_with("a block")
 
     def test_fail_block(self):
-        self._mock_block_cache["34"] = "a block"
+        self._mock_block_manager["34"] = "a block"
         self._proxy.fail_block(block_id=bytes([0x34]))
         self._mock_chain_controller\
             .fail_block\
@@ -321,7 +321,7 @@ class TestProxy(unittest.TestCase):
             block_num=1,
             consensus=b'consensus')
 
-        self._mock_block_cache[b'block1'.hex()] = block_1
+        self._mock_block_manager[b'block1'.hex()] = block_1
 
         block_2 = Mock(
             identifier=b'id-2',
@@ -330,7 +330,7 @@ class TestProxy(unittest.TestCase):
             block_num=2,
             consensus=b'consensus')
 
-        self._mock_block_cache[b'block2'.hex()] = block_2
+        self._mock_block_manager[b'block2'.hex()] = block_2
 
         proxy_block_1, proxy_block_2 = self._proxy.blocks_get([
             b'block1',
@@ -359,7 +359,7 @@ class TestProxy(unittest.TestCase):
             chain_head)
 
     def test_settings_get(self):
-        self._mock_block_cache[b'block'.hex()] = MockBlock()
+        self._mock_block_manager[b'block'.hex()] = MockBlock()
 
         self.assertEqual(
             self._proxy.settings_get(b'block', ['key1', 'key2']),
@@ -369,7 +369,7 @@ class TestProxy(unittest.TestCase):
             ])
 
     def test_state_get(self):
-        self._mock_block_cache[b'block'.hex()] = MockBlock()
+        self._mock_block_manager[b'block'.hex()] = MockBlock()
 
         address_1 = '1' * 70
         address_2 = '2' * 70
