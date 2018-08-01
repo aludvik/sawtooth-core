@@ -86,7 +86,6 @@ class BlockStore(MutableMapping):
         block = Block()
         block.ParseFromString(value)
         return BlockWrapper(
-            status=BlockStatus.Valid,
             block=block)
 
     @staticmethod

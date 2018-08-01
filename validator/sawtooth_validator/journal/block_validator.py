@@ -426,7 +426,6 @@ class BlockValidator:
             # Mark all pending blocks as invalid
             invalid = self._block_scheduler.done(block, and_descendants=True)
             for blk in invalid:
-                blk.status = BlockStatus.Invalid
                 LOGGER.debug(
                     'Marking descendant block invalid: %s',
                     block.header_signature)
