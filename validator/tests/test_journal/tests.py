@@ -160,7 +160,11 @@ class TestBlockPublisher(unittest.TestCase):
 
         self.publisher = BlockPublisher(
             transaction_executor=MockTransactionExecutor(),
-            block_cache=self.block_tree_manager.block_cache,
+            get_block=lambda block: self.block_tree_manager.block_cache[block],
+            transaction_committed=(
+                self.block_tree_manager.block_store.has_transaction
+            ),
+            batch_committed=self.block_tree_manager.block_store.has_batch,
             state_view_factory=self.state_view_factory,
             settings_cache=SettingsCache(
                 SettingsViewFactory(
@@ -333,7 +337,11 @@ class TestBlockPublisher(unittest.TestCase):
         self.publisher = BlockPublisher(
             transaction_executor=MockTransactionExecutor(
                 batch_execution_result=False),
-            block_cache=self.block_tree_manager.block_cache,
+            get_block=lambda block: self.block_tree_manager.block_cache[block],
+            transaction_committed=(
+                self.block_tree_manager.block_store.has_transaction
+            ),
+            batch_committed=self.block_tree_manager.block_store.has_batch,
             state_view_factory=self.state_view_factory,
             settings_cache=SettingsCache(
                 SettingsViewFactory(
@@ -374,7 +382,11 @@ class TestBlockPublisher(unittest.TestCase):
 
         self.publisher = BlockPublisher(
             transaction_executor=MockTransactionExecutor(),
-            block_cache=self.block_tree_manager.block_cache,
+            get_block=lambda block: self.block_tree_manager.block_cache[block],
+            transaction_committed=(
+                self.block_tree_manager.block_store.has_transaction
+            ),
+            batch_committed=self.block_tree_manager.block_store.has_batch,
             state_view_factory=self.state_view_factory,
             settings_cache=SettingsCache(
                 SettingsViewFactory(
@@ -431,7 +443,11 @@ class TestBlockPublisher(unittest.TestCase):
 
         self.publisher = BlockPublisher(
             transaction_executor=MockTransactionExecutor(),
-            block_cache=self.block_tree_manager.block_cache,
+            get_block=lambda block: self.block_tree_manager.block_cache[block],
+            transaction_committed=(
+                self.block_tree_manager.block_store.has_transaction
+            ),
+            batch_committed=self.block_tree_manager.block_store.has_batch,
             state_view_factory=self.state_view_factory,
             settings_cache=SettingsCache(
                 SettingsViewFactory(
@@ -479,7 +495,11 @@ class TestBlockPublisher(unittest.TestCase):
 
         self.publisher = BlockPublisher(
             transaction_executor=MockTransactionExecutor(),
-            block_cache=self.block_tree_manager.block_cache,
+            get_block=lambda block: self.block_tree_manager.block_cache[block],
+            transaction_committed=(
+                self.block_tree_manager.block_store.has_transaction
+            ),
+            batch_committed=self.block_tree_manager.block_store.has_batch,
             state_view_factory=self.state_view_factory,
             settings_cache=SettingsCache(
                 SettingsViewFactory(
@@ -981,7 +1001,11 @@ class TestChainController(unittest.TestCase):
 
         self.publisher = BlockPublisher(
             transaction_executor=MockTransactionExecutor(),
-            block_cache=self.block_tree_manager.block_cache,
+            get_block=lambda block: self.block_tree_manager.block_cache[block],
+            transaction_committed=(
+                self.block_tree_manager.block_store.has_transaction
+            ),
+            batch_committed=self.block_tree_manager.block_store.has_batch,
             state_view_factory=self.state_view_factory,
             settings_cache=SettingsCache(
                 SettingsViewFactory(
@@ -1149,7 +1173,11 @@ class TestChainControllerGenesisPeer(unittest.TestCase):
 
         self.publisher = BlockPublisher(
             transaction_executor=self.txn_executor,
-            block_cache=self.block_tree_manager.block_cache,
+            get_block=lambda block: self.block_tree_manager.block_cache[block],
+            transaction_committed=(
+                self.block_tree_manager.block_store.has_transaction
+            ),
+            batch_committed=self.block_tree_manager.block_store.has_batch,
             state_view_factory=MockStateViewFactory(
                 self.block_tree_manager.state_db),
             settings_cache=SettingsCache(
@@ -1165,7 +1193,6 @@ class TestChainControllerGenesisPeer(unittest.TestCase):
             permission_verifier=self.permission_verifier,
             batch_observers=[],
             batch_injector_factory=DefaultBatchInjectorFactory(
-                block_cache=self.block_tree_manager.block_cache,
                 state_view_factory=MockStateViewFactory(
                     self.block_tree_manager.state_db),
                 signer=self.block_tree_manager.identity_signer))
@@ -1289,7 +1316,9 @@ class TestJournal(unittest.TestCase):
         try:
             block_publisher = BlockPublisher(
                 transaction_executor=self.txn_executor,
-                block_cache=btm.block_cache,
+                get_block=lambda block: btm.block_cache[block],
+                transaction_committed=btm.block_store.has_transaction,
+                batch_committed=btm.block_store.has_batch,
                 state_view_factory=MockStateViewFactory(btm.state_db),
                 settings_cache=SettingsCache(
                     SettingsViewFactory(
@@ -1304,7 +1333,6 @@ class TestJournal(unittest.TestCase):
                 permission_verifier=self.permission_verifier,
                 batch_observers=[],
                 batch_injector_factory=DefaultBatchInjectorFactory(
-                    block_cache=btm.block_store,
                     state_view_factory=MockStateViewFactory(btm.state_db),
                     signer=btm.identity_signer))
 
