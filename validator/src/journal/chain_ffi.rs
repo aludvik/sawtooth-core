@@ -258,40 +258,29 @@ chain_controller_block_ffi!(chain_controller_commit_block, commit_block, block, 
 #[no_mangle]
 pub extern "C" fn chain_controller_queue_block(
     chain_controller: *mut c_void,
-    block: *mut py_ffi::PyObject,
+    block_id: *const c_char,
 ) -> ErrorCode {
-    check_null!(chain_controller, block);
+    check_null!(chain_controller, block_id);
 
-    let gil_guard = Python::acquire_gil();
-    let py = gil_guard.python();
-
-    let block: Block = unsafe {
-        match PyObject::from_borrowed_ptr(py, block).extract(py) {
-            Ok(val) => val,
-            Err(py_err) => {
-                pylogger::exception(
-                    py,
-                    "chain_controller_queue_block: unable to get block",
-                    py_err,
-                );
-                return ErrorCode::InvalidPythonObject;
-            }
+    let block_id = unsafe {
+        match CStr::from_ptr(block_id).to_str() {
+            Ok(s) => s,
+            Err(_) => return ErrorCode::InvalidBlockId,
         }
     };
+
     unsafe {
         let controller =
             (*(chain_controller as *mut ChainController<PyBlockValidator>)).light_clone();
 
-        py.allow_threads(move || {
-            let builder = thread::Builder::new().name("ChainController.queue_block".into());
-            builder
-                .spawn(move || {
-                    controller.queue_block(block);
-                })
-                .unwrap()
-                .join()
-                .unwrap();
-        });
+        let builder = thread::Builder::new().name("ChainController.queue_block".into());
+        builder
+            .spawn(move || {
+                controller.queue_block(block_id);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 
     ErrorCode::Success

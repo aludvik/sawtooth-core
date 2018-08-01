@@ -98,9 +98,9 @@ class ChainController(OwnedPointer):
         _pylibexec('chain_controller_commit_block', self.pointer,
                    ctypes.py_object(block))
 
-    def queue_block(self, block):
+    def queue_block(self, block_id):
         _pylibexec('chain_controller_queue_block', self.pointer,
-                   ctypes.py_object(block))
+                   ctypes.py_object(block_id))
 
     def block_validation_result(self, block_id):
         result = ctypes.c_int()

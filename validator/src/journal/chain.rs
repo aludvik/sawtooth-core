@@ -275,7 +275,7 @@ pub struct ChainController<BV: BlockValidator> {
     consensus_notifier: Arc<ConsensusNotifier>,
 
     // Queues
-    block_queue_sender: Option<Sender<Block>>,
+    block_queue_sender: Option<Sender<String>>,
     commit_queue_sender: Option<Sender<Block>>,
     validation_result_sender: Option<Sender<BlockValidationResult>>,
 
@@ -361,7 +361,6 @@ impl<BV: BlockValidator + 'static> ChainController<BV> {
                     let state = self.state
                         .read()
                         .expect("No lock holder should have poisoned the lock");
-                    state.block_manager.put(vec![block.clone()]);
                     state.block_validator.validate_block(block.clone())?;
                 }
                 let mut state = self.state
@@ -384,27 +383,39 @@ impl<BV: BlockValidator + 'static> ChainController<BV> {
         Ok(())
     }
 
-    pub fn on_block_received(&mut self, block: Block) -> Result<(), ChainControllerError> {
+    pub fn on_block_received(&mut self, block_id: String) -> Result<(), ChainControllerError> {
         if self.state
             .read()
             .expect("No lock holder should have poisoned the lock")
-            .has_block(&block.header_signature)
+            .has_block(&block_id)
         {
             return Ok(());
         }
-        if self.state
-            .read()
-            .expect("No lock holder should have poisoned the lock")
-            .chain_head
-            .is_none()
+
         {
-            if let Err(err) = self.set_genesis(block.clone()) {
-                warn!(
-                    "Unable to set chain head; genesis block {} is not valid: {:?}",
-                    block.header_signature, err
-                );
+            let state = self.state
+            .read()
+            .expect("No lock holder should have poisoned the lock");
+
+            if state.chain_head.is_none() {
+                match state.block_manager.get(&[&block_id]).nth(0) {
+                    Some(Some(block)) => {
+                        if let Err(err) = self.set_genesis(block) {
+                            warn!(
+                                "Unable to set chain head; genesis block {} is not valid: {:?}",
+                                block.header_signature, err
+                            );
+                        }
+                        return Ok(());
+                    }
+                    _ => {
+                        warn!(
+                            "Unable to set chain head; genesis block {} not in block manager",
+                            block_id,
+                        )
+                    }
+                }
             }
-            return Ok(());
         }
 
         let sender = self.validation_result_sender
@@ -418,14 +429,18 @@ impl<BV: BlockValidator + 'static> ChainController<BV> {
             .read()
             .expect("No lock holder should have poisoned the lock");
 
-        state
-            .block_manager
-            .put(vec![block.clone()])
-            .map_err(|err| warn!("{:?}", err));
+        if let Some(Some(block)) = state.block_manager.get(&[&block_id]).nth(0) {
+            state
+                .block_manager
+                .put(vec![block.clone()])
+                .map_err(|err| warn!("{:?}", err));
 
-        state
-            .block_validator
-            .submit_blocks_for_verification(&[block], sender);
+            state
+                .block_validator
+                .submit_blocks_for_verification(&[block], sender);
+        } else {
+            warn!("Received block not in block manager");
+        }
 
         Ok(())
     }
@@ -471,7 +486,8 @@ impl<BV: BlockValidator + 'static> ChainController<BV> {
         let block_ids = [block_id];
 
         let block = state.block_manager.get(&block_ids).next();
-        block.expect("The caller must guarantee that the block is known to the block manager")
+        let errstr = "The caller must guarantee that the block is known to the block manager";
+        block.expect(errstr).expect(errstr)
     }
 
     pub fn commit_block(&self, block: Block) {
@@ -668,16 +684,16 @@ impl<BV: BlockValidator + 'static> ChainController<BV> {
         Ok(())
     }
 
-    pub fn queue_block(&self, block: Block) {
+    pub fn queue_block(&self, block_id: &str) {
         if self.block_queue_sender.is_some() {
             let sender = self.block_queue_sender.clone();
-            if let Err(err) = sender.as_ref().unwrap().send(block) {
+            if let Err(err) = sender.as_ref().unwrap().send(block_id.into()) {
                 error!("Unable to add block to block queue: {}", err);
             }
         } else {
             debug!(
                 "Attempting to queue block {} before chain controller is started; Ignoring",
-                block
+                block_id
             );
         }
     }
@@ -863,7 +879,7 @@ impl<'a> From<&'a TxnExecutionResult> for TransactionReceipt {
 
 struct ChainThread<BV: BlockValidator> {
     chain_controller: ChainController<BV>,
-    block_queue: Receiver<Block>,
+    block_queue: Receiver<String>,
     exit: Arc<AtomicBool>,
 }
 
@@ -874,7 +890,7 @@ trait StopHandle: Clone {
 impl<BV: BlockValidator + 'static> ChainThread<BV> {
     fn new(
         chain_controller: ChainController<BV>,
-        block_queue: Receiver<Block>,
+        block_queue: Receiver<String>,
         exit_flag: Arc<AtomicBool>,
     ) -> Self {
         ChainThread {
@@ -886,7 +902,7 @@ impl<BV: BlockValidator + 'static> ChainThread<BV> {
 
     fn run(&mut self) -> Result<(), ChainControllerError> {
         loop {
-            let block = match self.block_queue
+            let block_id = match self.block_queue
                 .recv_timeout(Duration::from_millis(RECV_TIMEOUT_MILLIS))
             {
                 Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -897,9 +913,9 @@ impl<BV: BlockValidator + 'static> ChainThread<BV> {
                     }
                 }
                 Err(_) => break Err(ChainControllerError::BrokenQueue),
-                Ok(block) => block,
+                Ok(block_id) => block_id,
             };
-            self.chain_controller.on_block_received(block)?;
+            self.chain_controller.on_block_received(block_id)?;
 
             if self.exit.load(Ordering::Relaxed) {
                 break Ok(());
