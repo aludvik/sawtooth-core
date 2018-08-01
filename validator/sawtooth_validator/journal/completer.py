@@ -44,7 +44,7 @@ class Completer:
     """
 
     def __init__(self,
-                 block_cache,
+                 block_manager,
                  transaction_committed,
                  get_committed_batch_by_id,
                  get_committed_batch_by_txn_id,
@@ -54,8 +54,8 @@ class Completer:
                  cache_purge_frequency=30,
                  requested_keep_time=300):
         """
-        :param block_cache (dictionary) The block cache to use for getting
-            and storing blocks
+        :param block_manager (BlockManager) An object for getting and storing
+            blocks safely
         :param transaction_committed (fn(transaction_id) -> bool) A function to
             determine if a transaction is committed.
         :param batch_committed (fn(batch_id) -> bool) A function to
@@ -79,15 +79,13 @@ class Completer:
         """
         self._gossip = gossip
         self._batch_cache = TimedCache(cache_keep_time, cache_purge_frequency)
-        self._block_cache = block_cache
+        self._block_manager = block_manager
 
         self._transaction_committed = transaction_committed
         self._get_committed_batch_by_id = get_committed_batch_by_id
         self._get_committed_batch_by_txn_id = get_committed_batch_by_txn_id
         self._get_chain_head = get_chain_head
 
-        # avoid throwing away the genesis block
-        self._block_cache[NULL_BLOCK_IDENTIFIER] = None
         self._seen_txns = TimedCache(cache_keep_time, cache_purge_frequency)
         self._incomplete_batches = TimedCache(cache_keep_time,
                                               cache_purge_frequency)
@@ -118,7 +116,7 @@ class Completer:
 
     def _complete_block(self, block):
         """ Check the block to see if it is complete and if it can be passed to
-            the journal. If the block's predecessor is not in the block_cache
+            the journal. If the block's predecessor is not in the block_manager
             the predecessor is requested and the current block is added to the
             the incomplete_block cache. If the block.batches and
             block.header.batch_ids are not the same length, the batch_id list
@@ -133,15 +131,15 @@ class Completer:
             block.header.batch_ids list. If the block has all of its expected
             batches but are not in the correct order, the batch list is rebuilt
             and added to the block. Once a block has the correct batch list it
-            is added to the block_cache and is returned.
+            is added to the block_manager and is returned.
 
         """
 
-        if block.header_signature in self._block_cache:
+        if block.header_signature in self._block_manager:
             LOGGER.debug("Drop duplicate block: %s", block)
             return None
 
-        if block.previous_block_id not in self._block_cache:
+        if block.previous_block_id not in self._block_manager:
             if not self._has_block(block.previous_block_id):
                 if block.previous_block_id not in self._incomplete_blocks:
                     self._incomplete_blocks[block.previous_block_id] = [block]
@@ -294,11 +292,15 @@ class Completer:
                     inc_blocks = self._incomplete_blocks[my_key]
                     for inc_block in inc_blocks:
                         if self._complete_block(inc_block):
-                            self._block_cache[inc_block.header_signature] = \
-                                inc_block
-                            self._on_block_received(inc_block.block)
+                            self._send_block(inc_block.block)
                             to_complete.append(inc_block.header_signature)
                     del self._incomplete_blocks[my_key]
+
+    def _send_block(self, block):
+        # NOTE: BlockManager.put() sets an external reference count of 1 on the
+        # block which must later be decremented by the ChainController
+        self._block_manager.put([block])
+        self._on_block_received(block)
 
     def set_on_block_received(self, on_block_received_func):
         self._on_block_received = on_block_received_func
@@ -314,8 +316,7 @@ class Completer:
             blkw = BlockWrapper(block)
             block = self._complete_block(blkw)
             if block is not None:
-                self._block_cache[block.header_signature] = blkw
-                self._on_block_received(blkw.block)
+                self._send_block(block)
                 self._process_incomplete_blocks(block.header_signature)
             self._incomplete_blocks_length.set_value(
                 len(self._incomplete_blocks))
@@ -352,9 +353,10 @@ class Completer:
 
     def get_block(self, block_id):
         with self.lock:
-            if block_id in self._block_cache:
-                return self._block_cache[block_id]
-            return None
+            try:
+                return next(self._block_manager.get([block_id]))
+            except StopIteration:
+                return None
 
     def get_batch(self, batch_id):
         with self.lock:

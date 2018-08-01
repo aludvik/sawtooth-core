@@ -257,10 +257,7 @@ class Validator:
         )
 
         completer = Completer(
-            block_cache=BlockCache(
-                block_store,
-                keep_time=base_keep_time,
-                purge_frequency=30),
+            block_manager=block_manager,
             transaction_committed=block_store.has_transaction,
             get_committed_batch_by_id=block_store.get_batch,
             get_committed_batch_by_txn_id=(
