@@ -17,6 +17,7 @@ import ctypes
 from enum import IntEnum
 
 from sawtooth_validator.ffi import OwnedPointer
+from sawtooth_validator.protobuf.block_pb2 import Block
 from sawtooth_validator import ffi
 
 
@@ -131,16 +132,22 @@ class _BlockIterator:
         if not self._c_iter_ptr:
             raise StopIteration()
 
-        block = ctypes.py_object()
+        (c_result, c_result_len) = ffi.prepare_byte_result()
 
-        _pylibexec("{}_next".format(self.name),
-                   self._c_iter_ptr,
-                   ctypes.byref(block))
+        _libexec("{}_next".format(self.name),
+                 self._c_iter_ptr,
+                 ctypes.byref(c_result),
+                 ctypes.byref(c_result_len))
 
-        if block.value is None:
+        # Check if NULL
+        if not c_result:
             raise StopIteration()
 
-        return block.value
+        payload = ffi.from_c_bytes(c_result, c_result_len)
+        block = Block()
+        block.ParseFromString(payload)
+
+        return block
 
 
 class _GetBlockIterator(_BlockIterator):
