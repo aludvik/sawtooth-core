@@ -20,7 +20,13 @@ use proto;
 use protobuf::{self, Message};
 use std::fmt;
 
-#[derive(Clone, Debug, PartialEq, Default)]
+use metrics;
+lazy_static! {
+    static ref COLLECTOR: metrics::MetricsCollectorHandle =
+        metrics::get_collector("sawtooth_validator.block");
+}
+
+#[derive(Debug, PartialEq, Default)]
 pub struct Block {
     pub header_signature: String,
     pub batches: Vec<Batch>,
@@ -32,6 +38,57 @@ pub struct Block {
     pub block_num: u64,
 
     pub header_bytes: Vec<u8>,
+}
+
+impl Block {
+    pub fn new(
+        header_signature: String,
+        batches: Vec<Batch>,
+        state_root_hash: String,
+        consensus: Vec<u8>,
+        batch_ids: Vec<String>,
+        signer_public_key: String,
+        previous_block_id: String,
+        block_num: u64,
+        header_bytes: Vec<u8>,
+    ) -> Self {
+        COLLECTOR.counter("Block.new", None, None).inc();
+        COLLECTOR.counter("Block.net", None, None).inc();
+        Block {
+            header_signature,
+            batches,
+            state_root_hash,
+            consensus,
+            batch_ids,
+            signer_public_key,
+            previous_block_id,
+            block_num,
+            header_bytes,
+        }
+    }
+}
+
+impl Clone for Block {
+    fn clone(&self) -> Self {
+        Block::new(
+            self.header_signature.clone(),
+            self.batches.clone(),
+            self.state_root_hash.clone(),
+            self.consensus.clone(),
+            self.batch_ids.clone(),
+            self.signer_public_key.clone(),
+            self.previous_block_id.clone(),
+            self.block_num.clone(),
+            self.header_bytes.clone(),
+        )
+    }
+}
+
+impl Drop for Block {
+    fn drop(&mut self) {
+        COLLECTOR.counter("Block.drop", None, None).inc();
+        COLLECTOR.counter("Block.net", None, None).dec();
+    }
 }
 
 impl fmt::Display for Block {
@@ -50,12 +107,13 @@ impl From<Block> for proto::block::Block {
         proto_block.set_batches(protobuf::RepeatedField::from_vec(
             other
                 .batches
-                .into_iter()
+                .iter()
+                .cloned()
                 .map(proto::batch::Batch::from)
                 .collect(),
         ));
-        proto_block.set_header_signature(other.header_signature);
-        proto_block.set_header(other.header_bytes);
+        proto_block.set_header_signature(other.header_signature.clone());
+        proto_block.set_header(other.header_bytes.clone());
         proto_block
     }
 }
@@ -66,21 +124,20 @@ impl From<proto::block::Block> for Block {
             protobuf::parse_from_bytes(proto_block.get_header())
                 .expect("Unable to parse BlockHeader bytes");
 
-        Block {
-            header_signature: proto_block.take_header_signature(),
-            header_bytes: proto_block.take_header(),
-            state_root_hash: block_header.take_state_root_hash(),
-            consensus: block_header.take_consensus(),
-            batch_ids: block_header.take_batch_ids().into_vec(),
-            signer_public_key: block_header.take_signer_public_key(),
-            previous_block_id: block_header.take_previous_block_id(),
-            block_num: block_header.get_block_num(),
-
-            batches: proto_block
+        Block::new(
+            proto_block.take_header_signature(),
+            proto_block
                 .take_batches()
                 .into_iter()
                 .map(Batch::from)
                 .collect(),
-        }
+            block_header.take_state_root_hash(),
+            block_header.take_consensus(),
+            block_header.take_batch_ids().into_vec(),
+            block_header.take_signer_public_key(),
+            block_header.take_previous_block_id(),
+            block_header.get_block_num(),
+            proto_block.take_header(),
+        )
     }
 }
