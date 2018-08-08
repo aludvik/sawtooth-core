@@ -1,0 +1,11 @@
+if [ ! -e /home/ubuntu/.sawtooth/keys/ubuntu.priv ]
+then
+  sawtooth keygen
+fi
+
+smallbank-workload load \
+  -k /home/ubuntu/.sawtooth/keys/ubuntu.priv \
+  --rate 10
+  --target http://127.0.0.1:8008
+  --update-length 3
+  --seed $(shuf -i 1-1000 -n 1)

@@ -15,6 +15,11 @@
  * ------------------------------------------------------------------------------
  */
 
+use std::alloc::System;
+
+#[global_allocator]
+static GLOBAL: System = System;
+
 extern crate cbor;
 extern crate cpython;
 extern crate crypto;

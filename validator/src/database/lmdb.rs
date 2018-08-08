@@ -23,7 +23,7 @@ use lmdb_zero as lmdb;
 
 use database::database::DatabaseError;
 
-const DEFAULT_SIZE: usize = 1 << 40; // 1024 ** 4
+const DEFAULT_SIZE: usize = 1 << 30; // 1024 ** 3
 
 #[derive(Clone)]
 pub struct LmdbContext {

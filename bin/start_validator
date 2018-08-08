@@ -1,0 +1,40 @@
+set -e
+
+if [ ! -e /var/lib/sawtooth/block-00.lmdb ]
+then
+  sawadm keygen --force
+
+  sawset genesis \
+    -k /etc/sawtooth/keys/validator.priv \
+    -o config-genesis.batch
+
+  poet registration create \
+    -k /etc/sawtooth/keys/validator.priv \
+    -o poet.batch
+
+  sawset proposal create \
+    -k /etc/sawtooth/keys/validator.priv \
+    sawtooth.consensus.algorithm=poet \
+    sawtooth.poet.report_public_key_pem="$(cat /etc/sawtooth/simulator_rk_pub.pem)" \
+    sawtooth.poet.valid_enclave_measurements=$(poet enclave measurement) \
+    sawtooth.poet.valid_enclave_basenames=$(poet enclave basename) \
+    -o config.batch
+
+  sawset proposal create \
+    -k /etc/sawtooth/keys/validator.priv \
+    "sawtooth.poet.target_wait_time=5" \
+    "sawtooth.poet.initial_wait_time=25" \
+    "sawtooth.publisher.max_batches_per_block=100" \
+    -o poet-settings.batch
+
+  sawadm genesis \
+    config-genesis.batch config.batch poet.batch poet-settings.batch
+fi
+
+export PYTHONPATH=/project/validator
+export SAWTOOTH_LIB_HOME=/project/validator/target/release
+
+valgrind --tool=massif /project/validator/target/release/sawtooth-validator \
+  -vv
+  --scheduler parallel
+  --bind consensus:tcp://127.0.0.1:5050

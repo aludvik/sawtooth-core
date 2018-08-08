@@ -1,0 +1,5 @@
+poet-engine -v --connect tcp://127.0.0.1:5050 &
+poet-validator-registry-tp -v &
+sawtooth-rest-api -v &
+smallbank-tp-go &
+settings-tp &
