@@ -128,3 +128,32 @@ class ConcurrentMultiMap:
                 return self._dict[key].copy()
             except KeyError:
                 return default
+
+
+class ConsensusRegistry:
+    """A thread-safe construct that stores the connection_id, name, and version
+    of the currently registered consensus engine."""
+
+    def __init__(self):
+        self._info = None
+        self._lock = RLock()
+
+    def __bool__(self):
+        with self._lock:
+            return self._info is not None
+
+    def register_engine(self, connection_id, name, version):
+        with self._lock:
+            self._info = {
+                'connection_id': connection_id,
+                'name': name,
+                'version': version
+            }
+
+    def unregister_engine(self):
+        with self._lock:
+            self._info = None
+
+    def get_engine_info(self):
+        with self._lock:
+            return self._info
