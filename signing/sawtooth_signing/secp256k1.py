@@ -48,7 +48,7 @@ class Secp256k1PrivateKey(PrivateKey):
         return self._private_key
 
     @staticmethod
-    def from_hex(byte_str):
+    def from_bytes(byte_str):
         try:
             return Secp256k1PrivateKey(secp256k1.PrivateKey(
                 byte_str, ctx=__CTX__))
@@ -57,7 +57,7 @@ class Secp256k1PrivateKey(PrivateKey):
 
     @staticmethod
     def from_hex(hex_str):
-        return Secp256k1PrivateKey.from_hex(binascii.unhexlify(hex_str))
+        return Secp256k1PrivateKey.from_bytes(binascii.unhexlify(hex_str))
 
     @staticmethod
     def new_random():

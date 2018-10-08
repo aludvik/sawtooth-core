@@ -21,6 +21,8 @@ from sawtooth_validator.networking.dispatch import PreprocessorResult
 from sawtooth_validator.protobuf import validator_pb2
 from sawtooth_validator.protobuf.batch_pb2 import Batch
 from sawtooth_validator.protobuf.block_pb2 import Block
+from sawtooth_validator.protobuf.consensus_pb2 import \
+    ConsensusPeerMessageEnvelope
 from sawtooth_validator.protobuf.network_pb2 import GossipMessage
 from sawtooth_validator.protobuf.network_pb2 import GossipBlockResponse
 from sawtooth_validator.protobuf.network_pb2 import GossipBatchResponse
@@ -262,6 +264,9 @@ def gossip_message_preprocessor(message_content_bytes):
         obj.ParseFromString(gossip_message.content)
     elif tag == GossipMessage.BATCH:
         obj = Batch()
+        obj.ParseFromString(gossip_message.content)
+    elif tag == GossipMessage.CONSENSUS:
+        obj = ConsensusPeerMessageEnvelope()
         obj.ParseFromString(gossip_message.content)
 
     content = obj, tag, gossip_message.time_to_live

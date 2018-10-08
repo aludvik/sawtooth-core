@@ -121,7 +121,7 @@ def is_valid_consensus_message(message_envelope):
     header.ParseFromString(message_envelope.header)
 
     context = create_context('secp256k1')
-    public_key = Secp256k1PublicKey.from_hex(header.signer_public_key)
+    public_key = Secp256k1PublicKey.from_bytes(header.signer_public_key)
     if not context.verify(message_envelope.header_signature,
                           message_envelope.header,
                           public_key):
@@ -130,7 +130,7 @@ def is_valid_consensus_message(message_envelope):
         return False
 
     # verify the message field matches the header
-    message_sha512 = hashlib.sha512(message_envelope.message).hexdigest()
+    message_sha512 = hashlib.sha512(message_envelope.message).digest()
     if message_sha512 != header.message_sha512:
         LOGGER.debug("message doesn't match message_sha512 of the header for"
                      "message envelope: %s", message_envelope.header_signature)

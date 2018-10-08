@@ -225,16 +225,18 @@ class ConsensusProxy:
         return blocks
 
     def _wrap_consensus_message(self, message, connection_id):
-        header = ConsensusPeerMessageHeader()
-        header.signer_public_key = self._public_key
-        header.message_sha512 = hashlib.sha512(message).digest()
         engine_info = self._consensus_registry.get_engine_info()
-        header.name = engine_info.name
-        header.version = engine_info.version
+        header = ConsensusPeerMessageHeader(
+            signer_public_key=self._public_key,
+            message_sha512=hashlib.sha512(message).digest(),
+            name=engine_info['name'],
+            version=engine_info['version'],
+        ).SerializeToString()
 
-        envelope = ConsensusPeerMessageEnvelope()
-        envelope.header = header
-        envelope.message = message
-        envelope.header_signature = self._identity_signer.sign(header)
+        signature = bytes.fromhex(self._identity_signer.sign(header))
+        envelope = ConsensusPeerMessageEnvelope(
+            header=header,
+            message=message,
+            header_signature=signature)
 
         return envelope

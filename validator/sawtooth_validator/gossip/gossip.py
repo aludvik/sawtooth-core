@@ -345,7 +345,7 @@ class Gossip:
         self.broadcast(
             GossipMessage(
                 content_type=GossipMessage.CONSENSUS,
-                content=message_envelope,
+                content=message_envelope.SerializeToString(),
                 time_to_live=self.get_time_to_live()),
             validator_pb2.Message.GOSSIP_MESSAGE)
 
