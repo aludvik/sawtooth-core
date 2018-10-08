@@ -20,6 +20,7 @@ import signal
 import time
 import threading
 
+from sawtooth_validator.concurrent.atomic import ConsensusRegistry
 from sawtooth_validator.concurrent.threadpool import \
     InstrumentedThreadPoolExecutor
 from sawtooth_validator.execution.context_manager import ContextManager
@@ -236,7 +237,10 @@ class Validator:
             max_incoming_connections=20,
             max_future_callback_workers=10)
 
-        consensus_notifier = ConsensusNotifier(consensus_service)
+        consensus_registry = ConsensusRegistry()
+
+        consensus_notifier = ConsensusNotifier(consensus_service,
+                                               consensus_registry)
 
         # -- Setup P2P Networking -- #
         gossip = Gossip(
@@ -389,7 +393,8 @@ class Validator:
             gossip=gossip,
             identity_signer=identity_signer,
             settings_view_factory=SettingsViewFactory(state_view_factory),
-            state_view_factory=state_view_factory)
+            state_view_factory=state_view_factory,
+            consensus_registry=consensus_registry)
 
         consensus_handlers.add(
             consensus_dispatcher,
